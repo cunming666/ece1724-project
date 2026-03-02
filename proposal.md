@@ -2,11 +2,11 @@
 
 ## 1. Motivation
 
-Small events often do not have a clear-cut and efficient way of dealing with registration, participant information, and on-site check-in. In student clubs, campus events, and small community activities, these tasks often fall into spreadsheets, chat tools, and manual checking, leaving information scattered and making the check-in process less efficient during the day of the event. Specifically, when attendance grows beyond a small group, it becomes less clear to organizers who have registered and whether they have already checked in.
+Small events often do not have a clear-cut and efficient way of dealing with registration, participant information, and on-site check-in. In student clubs, campus events, and small community activities, these tasks often fall into spreadsheets, chat tools, and manual checking, leaving information scattered and making the check-in process less efficient during the day of the event. Specifically, when attendance grows beyond a small group, it becomes less clear to organizers who have registered and whether they have already checked in. In practice, this leads to duplicated or outdated attendee lists, slow on-site verification, and confusion when multiple staff members check in attendees in parallel. A centralized system can act as a single source of truth for registration and check-in status, reducing bottlenecks and making attendance tracking auditable.
 
 The main users of this project are the organizers who create events, staff members who check-in people, and attendees who need to register and look up event information for themselves. We think this project is worth pursuing because it is based on a real-world use case, and is part of the full-stack focus of this course so lends itself to frontend-backend integration, database design, file storage, access control, and real-time updates.
 
-Many small events still rely on simple manual methods for registration and check-in. These methods may work for smaller events, but they become less clear and less efficient as more people are involved. Because of this we want to build a more complete and direct system for these workflows.
+Many small events still rely on simple manual methods for registration and check-in. These methods may work for smaller events, but they become less clear and less efficient as more people are involved. Because of this we want to build a more complete and direct system for these workflows. Our expected outcome is a clearer workflow that reduces manual coordination effort and shortens on-site check-in bottlenecks, especially when attendance scales beyond a small group.
 
 ---
 
@@ -24,11 +24,11 @@ This augments the functionality created in the course assignments. The project w
 
 ### Database Schema and Relationships
 
-PostgreSQL will be used to store users, events, registrations and check-in records. One organizer can have many events, and one event can have many registrations that are linked to check-in status.
+PostgreSQL will store users, events, registrations, and check-in records. At a minimum, we will maintain: (1) Users with a role field (Organizer/Staff/Attendee), (2) Events owned by an organizer, (3) Registrations that link an attendee to an event with a uniqueness constraint on (eventId, attendeeId), and (4) Check-in records that reference a registration (or ticket) and prevent duplicate check-ins via a uniqueness constraint (e.g., unique(registrationId)). This keeps the workflow consistent and queryable while remaining feasible within the course timeline.
 
 ### File Storage Requirements
 
-Users should be able to upload event cover images, or other event related files. These files should be uploaded to cloud storage and associated with events in the database.
+Users will be able to upload event cover images and other event-related files to cloud object storage. The backend will provide an upload mechanism (e.g., generating a pre-signed upload URL), and file metadata (object key, MIME type, size, and owning event) will be stored in the relational database. The system will also support basic file download by issuing a download link (e.g., pre-signed GET) so that uploaded assets can be retrieved reliably during grading and demos.
 
 ### User Interface and Experience Design
 
@@ -44,13 +44,13 @@ User registration/login, protected routes (organizers, staff, attendees will hav
 
 #### 2. Real-Time Functionality
 
-The system will support live check-in status updates. For example, after one of the staff members checks in, the updated number of people who have checked in will be available on the organizer’s page onwards without them needing to refresh the page. We will do this for check-in updates so that the scope doesn’t get out of hand. We will do this using a backend driven push or update mechanism (eg. WebSocket) to push the check-in updates to the appropriate organizer views.
+The system will support live check-in status updates for organizer dashboards without a page refresh. Concretely, when a staff member checks in an attendee, the backend will emit an event (e.g., checkin:created) over Socket.IO/WebSocket to clients viewing that event’s dashboard. The payload will include the event identifier, updated attendance counts, and a small recent check-in feed (e.g., last N check-ins) so organizers can monitor progress in real time while keeping scope controlled.
 
 If there is time available, a possible further extension could be File Handling and Processing: e.g. processing ticket files or QR-based ticket records after registration, to go beyond simple upload and display of files.
 
 ### How These Features Fulfill the Course Requirements
 
-This project satisfies the course requirements because it includes a complete frontend and backend structure, a relational database, cloud-based file storage, and clear frontend-backend data interaction. It also includes at least two advanced features, namely authentication and authorization, and real-time updates.
+This project satisfies the course requirements because it includes a complete frontend and backend structure, a relational database, cloud-based file storage, and clear frontend-backend data interaction. It also includes at least two advanced features, namely authentication and authorization, and real-time updates. During the presentation, we will demonstrate the end-to-end flow (event creation → registration → check-in) and show real-time dashboard updates triggered by staff check-ins, along with a cloud-stored event asset that can be uploaded and downloaded.
 
 ### Scope and Feasibility
 
@@ -64,49 +64,94 @@ Our timeline is four weeks to complete the project. We plan to implement the cor
 
 ### Role Assignments
 
-**Member A**  
-Main pages (event list, event detail, registration, check-in interface)  
-Frontend and backend integration  
+Member A – Shuanglong Zhu  
+Member B – Nairui Tian  
+Member C – Cunming Liu  
+Member D – Ruogu Xu  
 
-**Member B**  
-Database schema and migrations  
-Backend APIs (events, registrations, check-in)  
-
-**Member C**  
-Authentication and authorization  
-Protected routes and permissions  
-
-**Member D**  
-Real-time updates feature  
-Testing and deployment  
 
 ### Week 1
 
-Authenticate a user  
-Create & migrate database  
-Set up registration & login  
-Event and registration APIs  
+Member A
+- Implement core frontend structure (landing page, login page skeleton)
+- Connect frontend to authentication endpoints
+
+Member B
+- Design database schema (users, events, registrations, check-in)
+- Create and run migrations
+- Implement basic event and registration APIs
+
+Member C
+- Implement authentication logic (register/login)
+- Set up session or JWT handling
+- Create protected route middleware
+
+Member D
+- Prepare development environment and project setup
+- Assist backend API testing
+- Research deployment and real-time infrastructure setup
+
 
 ### Week 2
 
-Event creation and registration workflow  
-Integrate frontend & backend  
-Integrate authentication and permission-based access control  
-Verify and ensure core features are fully operational locally  
+Member A
+- Implement event list and event detail pages
+- Build registration interface
+- Integrate frontend with backend APIs
+
+Member B
+- Finalize event creation and registration APIs
+- Implement check-in API endpoints
+- Enforce database constraints
+
+Member C
+- Integrate authentication with frontend
+- Implement role-based access control (Organizer/Staff/Attendee)
+- Verify protected routes and permissions
+
+Member D
+- Begin implementing real-time infrastructure (Socket.IO/WebSocket setup)
+- Assist integration testing
+
 
 ### Week 3
 
-Add and refine real-time check-in notifications  
-Improve frontend interaction and flow  
-Set up temporary cloud storage  
-Begin configuring deployment  
+Member A
+- Refine UI/UX interactions
+- Implement check-in dashboard interface
+
+Member B
+- Support backend event emission for real-time updates
+- Ensure data consistency during check-in operations
+
+Member C
+- Add authorization validation for real-time events
+- Assist debugging authentication and integration issues
+
+Member D
+- Implement real-time check-in updates
+- Emit and receive check-in events
+- Connect organizer dashboard to real-time updates
+
 
 ### Week 4
 
-Finish deployment configuration  
-Test system and fix bugs  
-Test notifications and access control  
-Prepare documentation and submit videos  
+Member A
+- Final UI polishing
+- Prepare demo interface and presentation flow
+
+Member B
+- Final database testing and backend bug fixes
+- Optimize query performance if needed
+
+Member C
+- Perform security testing (authentication & authorization validation)
+- Ensure protected routes behave correctly
+
+Member D
+- Finalize deployment configuration
+- Perform end-to-end system testing
+- Assist documentation and video preparation
 
 ### Possible Risks and Mitigations
 
@@ -123,17 +168,23 @@ Early in the project, based on the course lectures and the project handout, we m
 **Tech Stack**  
 We settled on using a separated frontend and backend structure (React + Express) as we were gradually introduced to backend APIs and how to integrate with them in this format, and it felt like a consistent extension of previous exercises we’ve done as well as a clear separation of responsibilities. Also wanting structured relationships between users, events, registrations, and check-in records, we chose a relational database (PostgreSQL).
 
+**Data & State Design**
+We expect the server to be the source of truth for registrations and check-in status. On the frontend, we plan to use query-based state (e.g., TanStack Query) for caching and invalidation of server data, so that pages remain consistent after mutations (register/check-in) without requiring complex global state.
+
 ### Anticipated Challenges
 
 We thought integrating authentication flow and role-based access control would be tricky, especially in terms of coordinating frontend state with what the backend thinks is happening. We thought it would also be slightly tricky to integrate real-time updates.
 
 ### Risk Reduction
 
-To minimize risk, we chose to implement real-time functionality only for users’ check-in status rather than synchronizing their entire state.
+To minimize risk, we chose to implement real-time functionality only for users’ check-in status rather than synchronizing their entire state. 
+
+## Feature selection and tradeoffs 
+We intentionally avoid payment processing and other high-risk integrations to keep scope feasible. We also limit real-time updates to check-in events (rather than synchronizing all client state) to reduce complexity while still demonstrating meaningful real-time functionality.
 
 ### Early Development
 
-We would first implement a user registration/login flow and some rudimentary event workflows. Once we were able to run the core of the system locally, we would add the real-time updates and another round of deployment-related configuration.
+We would first implement a user registration/login flow and some rudimentary event workflows. To reduce integration risk, we will define shared DTOs and route contracts early so the frontend and backend can develop in parallel with fewer mismatches. Once we were able to run the core of the system locally, we would add the real-time updates and another round of deployment-related configuration.
 
 ---
 
