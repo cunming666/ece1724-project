@@ -1,0 +1,111 @@
+﻿@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #0f172a;
+  --bg-top: #f5fff9;
+  --bg-mid: #f6fbff;
+  --bg-bottom: #fffaf2;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-border: rgba(148, 163, 184, 0.28);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Manrope", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(45, 212, 191, 0.2), transparent 30%),
+    radial-gradient(circle at 85% 10%, rgba(251, 191, 36, 0.2), transparent 28%),
+    linear-gradient(165deg, var(--bg-top), var(--bg-mid) 40%, var(--bg-bottom));
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.hero-glow {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.hero-glow::before,
+.hero-glow::after {
+  content: "";
+  position: absolute;
+  filter: blur(30px);
+}
+
+.hero-glow::before {
+  width: 380px;
+  height: 380px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.24);
+  top: -80px;
+  right: -120px;
+  animation: pulse-lift 7s ease-in-out infinite;
+}
+
+.hero-glow::after {
+  width: 320px;
+  height: 320px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.22);
+  left: -120px;
+  top: 240px;
+  animation: pulse-lift 8.5s ease-in-out infinite reverse;
+}
+
+.glass-panel {
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 14px 30px -24px rgba(15, 23, 42, 0.7);
+}
+
+.stagger-enter {
+  animation: fade-up 0.5s ease-out both;
+}
+
+.stagger-1 { animation-delay: 40ms; }
+.stagger-2 { animation-delay: 100ms; }
+.stagger-3 { animation-delay: 160ms; }
+.stagger-4 { animation-delay: 220ms; }
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-lift {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateY(8px);
+    opacity: 0.9;
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "ece1724-checkin-system",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,green \"npm run dev -w @checkin/api\" \"npm run dev -w @checkin/web\"",
+    "dev:api": "npm run dev -w @checkin/api",
+    "dev:web": "npm run dev -w @checkin/web",
+    "build": "npm run build -ws --if-present",
+    "typecheck": "npm run typecheck -ws --if-present",
+    "test": "npm run test -ws --if-present",
+    "demo:bootstrap": "node scripts/demo-bootstrap.mjs",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:studio": "prisma studio"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prisma": "^6.4.1",
+    "typescript": "^5.7.3"
+  }
+}
