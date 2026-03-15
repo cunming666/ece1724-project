@@ -584,6 +584,130 @@ export function createApiRouter(io: Server) {
     }
   });
 
+  router.get("/events/:eventId/staff", requireAuth(["ORGANIZER"]), async (req, res, next) => {
+    try {
+      const access = await assertEventAccess("ORGANIZER", res.locals.auth.user.id, req.params.eventId);
+      if (!access.ok) {
+        return res.status(access.code).json({ error: access.error });
+      }
+
+      const assignments = await prisma.staffAssignment.findMany({
+        where: { eventId: req.params.eventId },
+        orderBy: { id: "asc" },
+      });
+
+      const userIds = assignments.map((item) => item.userId);
+      const users = userIds.length
+        ? await prisma.user.findMany({
+            where: {
+              id: { in: userIds },
+            },
+          })
+        : [];
+
+      const userMap = new Map(users.map((user) => [user.id, user]));
+
+      const items = assignments.map((assignment) => ({
+        ...assignment,
+        user: userMap.get(assignment.userId) ?? null,
+      }));
+
+      res.json({ items });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/events/:eventId/staff", requireAuth(["ORGANIZER"]), async (req, res, next) => {
+    try {
+      const access = await assertEventAccess("ORGANIZER", res.locals.auth.user.id, req.params.eventId);
+      if (!access.ok) {
+        return res.status(access.code).json({ error: access.error });
+      }
+
+      const body = z.object({ email: z.string().email() }).parse(req.body);
+
+      const user = await prisma.user.findUnique({
+        where: { email: body.email },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.role !== "STAFF") {
+        return res.status(409).json({ error: "User is not a staff account" });
+      }
+
+      const existing = await prisma.staffAssignment.findUnique({
+        where: {
+          eventId_userId: {
+            eventId: req.params.eventId,
+            userId: user.id,
+          },
+        },
+      });
+
+      if (existing) {
+        return res.status(409).json({ error: "Staff already assigned" });
+      }
+
+      const assignment = await prisma.staffAssignment.create({
+        data: {
+          eventId: req.params.eventId,
+          userId: user.id,
+        },
+      });
+
+      res.status(201).json({
+        ...assignment,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete("/events/:eventId/staff/:userId", requireAuth(["ORGANIZER"]), async (req, res, next) => {
+    try {
+      const access = await assertEventAccess("ORGANIZER", res.locals.auth.user.id, req.params.eventId);
+      if (!access.ok) {
+        return res.status(access.code).json({ error: access.error });
+      }
+
+      const existing = await prisma.staffAssignment.findUnique({
+        where: {
+          eventId_userId: {
+            eventId: req.params.eventId,
+            userId: req.params.userId,
+          },
+        },
+      });
+
+      if (!existing) {
+        return res.status(404).json({ error: "Staff assignment not found" });
+      }
+
+      await prisma.staffAssignment.delete({
+        where: {
+          eventId_userId: {
+            eventId: req.params.eventId,
+            userId: req.params.userId,
+          },
+        },
+      });
+
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get("/events/:eventId/attendees", requireAuth(["ORGANIZER", "STAFF"]), async (req, res, next) => {
     try {
       const access = await assertEventAccess(res.locals.auth.user.role, res.locals.auth.user.id, req.params.eventId);

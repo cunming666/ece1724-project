@@ -14,6 +14,20 @@ type EventItem = {
   status: "DRAFT" | "PUBLISHED" | "CLOSED";
 };
 
+type StaffUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: "STAFF";
+};
+
+type StaffAssignmentItem = {
+  id: string;
+  eventId: string;
+  userId: string;
+  user: StaffUser | null;
+};
+
 type Notice = {
   tone: "success" | "error" | "info";
   text: string;
@@ -34,12 +48,21 @@ export function ControlPanelPage() {
     capacity: 100,
   });
 
+  const [selectedEventId, setSelectedEventId] = useState("");
+  const [staffEmail, setStaffEmail] = useState("");
+
   const eventsQuery = useQuery({
     queryKey: ["events"],
     queryFn: () => apiFetch<{ items: EventItem[] }>("/api/events"),
   });
 
   const publishedEvents = eventsQuery.data?.items ?? [];
+
+  const staffAssignmentsQuery = useQuery({
+    queryKey: ["event-staff", selectedEventId],
+    enabled: Boolean(selectedEventId && currentUser?.role === "ORGANIZER"),
+    queryFn: () => apiFetch<{ items: StaffAssignmentItem[] }>(`/api/events/${selectedEventId}/staff`),
+  });
 
   const stats = useMemo(() => {
     const now = Date.now();
@@ -57,7 +80,7 @@ export function ControlPanelPage() {
         throw new Error("Please choose a valid start date/time.");
       }
 
-      return apiFetch("/api/events", {
+      return apiFetch<EventItem>("/api/events", {
         method: "POST",
         body: JSON.stringify({
           ...eventForm,
@@ -79,6 +102,48 @@ export function ControlPanelPage() {
     mutationFn: (eventId: string) => apiFetch(`/api/events/${eventId}/register`, { method: "POST" }),
     onSuccess: () => setNotice({ tone: "success", text: "Registered successfully." }),
     onError: (err: Error) => setNotice({ tone: "error", text: err.message }),
+  });
+
+  const assignStaff = useMutation({
+    mutationFn: async () => {
+      if (!selectedEventId) {
+        throw new Error("Please select an event first.");
+      }
+      if (!staffEmail.trim()) {
+        throw new Error("Please enter a staff email.");
+      }
+
+      return apiFetch(`/api/events/${selectedEventId}/staff`, {
+        method: "POST",
+        body: JSON.stringify({ email: staffEmail.trim() }),
+      });
+    },
+    onSuccess: () => {
+      setNotice({ tone: "success", text: "Staff assigned successfully." });
+      setStaffEmail("");
+      queryClient.invalidateQueries({ queryKey: ["event-staff", selectedEventId] });
+    },
+    onError: (err: Error) => {
+      setNotice({ tone: "error", text: err.message });
+    },
+  });
+
+  const removeStaff = useMutation({
+    mutationFn: (userId: string) => {
+      if (!selectedEventId) {
+        throw new Error("Please select an event first.");
+      }
+      return apiFetch(`/api/events/${selectedEventId}/staff/${userId}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      setNotice({ tone: "success", text: "Staff removed successfully." });
+      queryClient.invalidateQueries({ queryKey: ["event-staff", selectedEventId] });
+    },
+    onError: (err: Error) => {
+      setNotice({ tone: "error", text: err.message });
+    },
   });
 
   const signOut = useMutation({
@@ -209,8 +274,98 @@ export function ControlPanelPage() {
             </div>
           </Card>
 
+          {currentUser?.role === "ORGANIZER" ? (
+            <Card
+              className="stagger-enter stagger-3"
+              title="Staff Assignment"
+              subtitle="Assign staff accounts to a published event by email."
+              headerRight={<Pill tone="brand">P0-5</Pill>}
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <FieldLabel>Select Event</FieldLabel>
+                  <select
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-100"
+                    value={selectedEventId}
+                    onChange={(e) => setSelectedEventId(e.target.value)}
+                  >
+                    <option value="">Choose an event</option>
+                    {publishedEvents.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {event.title} ({event.status})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <FieldLabel>Staff Email</FieldLabel>
+                  <Input
+                    placeholder="staff@test.com"
+                    value={staffEmail}
+                    onChange={(e) => setStaffEmail(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button onClick={() => assignStaff.mutate()} disabled={assignStaff.isPending}>
+                  {assignStaff.isPending ? "Assigning..." : "Assign Staff"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => staffAssignmentsQuery.refetch()}
+                  disabled={!selectedEventId || staffAssignmentsQuery.isFetching}
+                >
+                  {staffAssignmentsQuery.isFetching ? "Refreshing..." : "Refresh Staff List"}
+                </Button>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                <p className="text-sm font-semibold text-slate-800">Assigned Staff</p>
+
+                {!selectedEventId ? (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                    Choose a published event first to manage staff assignments.
+                  </div>
+                ) : staffAssignmentsQuery.isLoading ? (
+                  <div className="rounded-2xl bg-slate-100/80 px-4 py-5 text-sm text-slate-600">Loading staff...</div>
+                ) : staffAssignmentsQuery.isError ? (
+                  <div className="rounded-2xl bg-rose-50 px-4 py-5 text-sm text-rose-700">
+                    Failed to load staff assignments.
+                  </div>
+                ) : staffAssignmentsQuery.data?.items.length ? (
+                  <div className="space-y-3">
+                    {staffAssignmentsQuery.data.items.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{item.user?.name ?? "Unknown Staff"}</p>
+                          <p className="text-xs text-slate-600">{item.user?.email ?? "unknown@example.com"}</p>
+                        </div>
+                        <Button
+                          variant="danger"
+                          onClick={() => removeStaff.mutate(item.userId)}
+                          disabled={removeStaff.isPending}
+                        >
+                          {removeStaff.isPending ? "Removing..." : "Remove"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                    No staff assigned to this event yet.
+                  </div>
+                )}
+              </div>
+            </Card>
+          ) : null}
+
           <Card
-            className="stagger-enter stagger-3"
+            className="stagger-enter stagger-4"
             title="Project Workflow"
             subtitle="Recommended UI flow for your team demo."
           >
@@ -219,12 +374,13 @@ export function ControlPanelPage() {
               <li>2. Create/publish event and register attendees.</li>
               <li>3. Open event dashboard to show live check-ins.</li>
               <li>4. Demonstrate duplicate check-in and waitlist promotion.</li>
+              <li>5. Assign and remove staff from an organizer account.</li>
             </ol>
           </Card>
         </div>
 
         <Card
-          className="stagger-enter stagger-4"
+          className="stagger-enter stagger-5"
           title="Published Event Board"
           subtitle="Open dashboard per event, or register as attendee."
           headerRight={<Pill tone="slate">Live Feed</Pill>}
