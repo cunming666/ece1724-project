@@ -1,6 +1,6 @@
 import type { UserRole } from "../types.js";
 import type { NextFunction, Request, Response } from "express";
-import { store } from "./store.js";
+import { prisma } from "./prisma.js";
 
 export interface AuthSession {
   sessionId: string;
@@ -38,7 +38,11 @@ export async function resolveSession(req: Request): Promise<AuthSession | null> 
     return null;
   }
 
-  const session = store.sessions.find((item) => item.token === token);
+  const session = await prisma.session.findUnique({
+    where: { token },
+    include: { user: true },
+  });
+
   if (!session) {
     return null;
   }
@@ -47,19 +51,14 @@ export async function resolveSession(req: Request): Promise<AuthSession | null> 
     return null;
   }
 
-  const user = store.users.find((item) => item.id === session.userId);
-  if (!user) {
-    return null;
-  }
-
   return {
     sessionId: session.id,
     token,
     user: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      role: session.user.role,
     },
   };
 }

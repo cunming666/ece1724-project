@@ -1,8 +1,8 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import { randomToken } from "../lib/security.js";
 import { requireAuth, resolveSession } from "../lib/auth.js";
-import { store } from "../lib/store.js";
+import { prisma } from "../lib/prisma.js";
 
 const signUpSchema = z.object({
   email: z.string().email(),
@@ -22,21 +22,24 @@ export function createAuthRouter() {
   router.post("/sign-up", async (req, res, next) => {
     try {
       const parsed = signUpSchema.parse(req.body);
-      const existing = store.users.find((item) => item.email === parsed.email);
+
+      const existing = await prisma.user.findUnique({
+        where: { email: parsed.email },
+      });
+
       if (existing) {
         return res.status(409).json({ error: "Email already registered" });
       }
 
-      const user = {
-        id: store.createId("usr"),
-        email: parsed.email,
-        name: parsed.name,
-        passwordHash: parsed.password,
-        role: parsed.role,
-        createdAt: store.nowIso(),
-      };
+      const user = await prisma.user.create({
+        data: {
+          email: parsed.email,
+          name: parsed.name,
+          passwordHash: parsed.password,
+          role: parsed.role,
+        },
+      });
 
-      store.users.push(user);
       res.status(201).json({
         id: user.id,
         email: user.email,
@@ -51,29 +54,31 @@ export function createAuthRouter() {
   router.post("/sign-in", async (req, res, next) => {
     try {
       const parsed = signInSchema.parse(req.body);
-      const user = store.users.find((item) => item.email === parsed.email);
+
+      const user = await prisma.user.findUnique({
+        where: { email: parsed.email },
+      });
+
       if (!user || user.passwordHash !== parsed.password) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
       const token = randomToken();
-      const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
+      const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
 
-      const session = {
-        id: store.createId("ses"),
-        userId: user.id,
-        token,
-        expiresAt,
-        createdAt: store.nowIso(),
-      };
-
-      store.sessions.push(session);
+      await prisma.session.create({
+        data: {
+          userId: user.id,
+          token,
+          expiresAt,
+        },
+      });
 
       res.cookie("session_token", token, {
         httpOnly: false,
         sameSite: "lax",
         secure: false,
-        expires: new Date(expiresAt),
+        expires: expiresAt,
       });
 
       res.json({
@@ -95,10 +100,14 @@ export function createAuthRouter() {
       const token =
         req.headers.authorization?.replace(/^Bearer\s+/i, "") ||
         req.cookies?.session_token ||
-        (typeof req.headers["x-session-token"] === "string" ? req.headers["x-session-token"] : undefined);
+        (typeof req.headers["x-session-token"] === "string"
+          ? req.headers["x-session-token"]
+          : undefined);
 
       if (token) {
-        store.sessions = store.sessions.filter((item) => item.token !== token);
+        await prisma.session.deleteMany({
+          where: { token },
+        });
       }
 
       res.clearCookie("session_token");
