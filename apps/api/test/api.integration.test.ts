@@ -163,6 +163,128 @@ describe("Event registration and waitlist", () => {
   });
 });
 
+
+describe("Organizer and attendee workspace APIs", () => {
+  test("returns organizer-owned drafts and published events via /api/my/events", async () => {
+    const organizer = await signUpAndSignIn({
+      email: "org+mine@utoronto.ca",
+      name: "Org Mine",
+      role: "ORGANIZER",
+    });
+    const otherOrganizer = await signUpAndSignIn({
+      email: "org+other@utoronto.ca",
+      name: "Org Other",
+      role: "ORGANIZER",
+    });
+
+    const draft = await api.post("/api/events")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        title: "Draft Event",
+        description: "draft",
+        location: "BA 1130",
+        startTime: new Date(Date.now() + 3600_000).toISOString(),
+        capacity: 10,
+        waitlistEnabled: true,
+      })
+      .expect(201);
+
+    const published = await api.post("/api/events")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        title: "Published Event",
+        description: "published",
+        location: "BA 1131",
+        startTime: new Date(Date.now() + 7200_000).toISOString(),
+        capacity: 20,
+        waitlistEnabled: true,
+      })
+      .expect(201);
+
+    await api.post(`/api/events/${published.body.id}/publish`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .expect(200);
+
+    await api.post("/api/events")
+      .set("Authorization", `Bearer ${otherOrganizer.token}`)
+      .send({
+        title: "Other Organizer Event",
+        description: "other",
+        location: "BA 1132",
+        startTime: new Date(Date.now() + 10800_000).toISOString(),
+        capacity: 30,
+        waitlistEnabled: true,
+      })
+      .expect(201);
+
+    const myEvents = await api.get("/api/my/events")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .expect(200);
+
+    expect(myEvents.body.items).toHaveLength(2);
+    expect(myEvents.body.items.some((item: { id: string; status: string }) => item.id === draft.body.id && item.status === "DRAFT")).toBe(true);
+    expect(myEvents.body.items.some((item: { id: string; status: string }) => item.id === published.body.id && item.status === "PUBLISHED")).toBe(true);
+  });
+
+  test("returns attendee tickets and qr access via /api/me/tickets", async () => {
+    const organizer = await signUpAndSignIn({
+      email: "org+tickets@utoronto.ca",
+      name: "Org Tickets",
+      role: "ORGANIZER",
+    });
+    const attendee = await signUpAndSignIn({
+      email: "attendee+tickets@utoronto.ca",
+      name: "Ticket Holder",
+      role: "ATTENDEE",
+    });
+
+    const createdEvent = await api.post("/api/events")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        title: "Ticket Event",
+        description: "ticket page",
+        location: "Myhal",
+        startTime: new Date(Date.now() + 3600_000).toISOString(),
+        capacity: 5,
+        waitlistEnabled: true,
+      })
+      .expect(201);
+
+    const eventId = createdEvent.body.id as string;
+
+    await api.post(`/api/events/${eventId}/publish`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .expect(200);
+
+    const registration = await api.post(`/api/events/${eventId}/register`)
+      .set("Authorization", `Bearer ${attendee.token}`)
+      .expect(201);
+
+    const ticketId = registration.body.ticket.id as string;
+
+    const myTickets = await api.get("/api/me/tickets")
+      .set("Authorization", `Bearer ${attendee.token}`)
+      .expect(200);
+
+    expect(myTickets.body.items).toHaveLength(1);
+    expect(myTickets.body.items[0].id).toBe(ticketId);
+    expect(myTickets.body.items[0].event.id).toBe(eventId);
+    expect(myTickets.body.items[0].checkin.checkedIn).toBe(false);
+
+    const qrResponse = await api.get(`/api/tickets/${ticketId}/qr`)
+      .set("Authorization", `Bearer ${attendee.token}`)
+      .expect(200);
+
+    expect(qrResponse.text).toContain("<svg");
+  });
+});
+
+
+
+
+
+
+
 describe("Check-in idempotency and RBAC", () => {
   test("marks second check-in as duplicate and enforces role restrictions", async () => {
     const organizer = await signUpAndSignIn({

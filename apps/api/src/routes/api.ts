@@ -54,6 +54,25 @@ function emitAttendance(io: Server, eventId: string): void {
   });
 }
 
+
+function getTicketCheckinSummary(ticketId: string) {
+  const validCheckin = store.checkins
+    .filter((item) => item.ticketId === ticketId && !item.isDuplicate)
+    .sort((a, b) => (a.checkedInAt > b.checkedInAt ? -1 : 1))[0];
+
+  const duplicateCount = store.checkins.filter((item) => item.ticketId === ticketId && item.isDuplicate).length;
+
+  return {
+    checkedIn: Boolean(validCheckin),
+    checkedInAt: validCheckin?.checkedInAt ?? null,
+    duplicateCount,
+  };
+}
+
+
+
+
+
 function createTicket(eventId: string, attendeeId: string) {
   const token = randomToken();
   const ticketId = store.createId("tkt");
@@ -303,6 +322,60 @@ export function createApiRouter(io: Server) {
     res.json({ items: events });
   });
 
+
+  router.get("/my/events", requireAuth(["ORGANIZER"]), (_req, res) => {
+  const items = store.events
+    .filter((item) => item.organizerId === res.locals.auth.user.id)
+    .slice()
+    .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1));
+
+  res.json({ items });
+});
+
+  router.get("/me/tickets", requireAuth(["ATTENDEE"]), (_req, res) => {
+    const attendeeId = res.locals.auth.user.id;
+    const items = store.tickets
+      .filter((item) => item.attendeeId === attendeeId)
+      .slice()
+      .sort((a, b) => (a.issuedAt > b.issuedAt ? -1 : 1))
+      .map((ticket) => {
+        const event = store.events.find((item) => item.id === ticket.eventId);
+        const registration = store.registrations.find(
+          (item) => item.eventId === ticket.eventId && item.attendeeId === attendeeId,
+        );
+
+        return {
+          id: ticket.id,
+          issuedAt: ticket.issuedAt,
+          revokedAt: ticket.revokedAt,
+          event: event
+            ? {
+                id: event.id,
+                title: event.title,
+                location: event.location,
+                startTime: event.startTime,
+                status: event.status,
+              }
+            : {
+                id: ticket.eventId,
+                title: "Unknown event",
+                location: "Unknown location",
+                startTime: store.nowIso(),
+                status: "CLOSED" as EventStatus,
+              },
+          registration: registration
+            ? {
+                id: registration.id,
+                status: registration.status,
+                registeredAt: registration.registeredAt,
+              }
+            : null,
+          checkin: getTicketCheckinSummary(ticket.id),
+        };
+      });
+
+    res.json({ items });
+  });
   router.post("/events", requireAuth(["ORGANIZER"]), async (req, res, next) => {
     try {
       const parsed = createEventSchema.parse(req.body);
