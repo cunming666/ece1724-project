@@ -1,4 +1,4 @@
-﻿import type { PropsWithChildren, ReactNode } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 
 function cx(...items: Array<string | false | null | undefined>): string {
   return items.filter(Boolean).join(" ");
@@ -29,7 +29,7 @@ export function Card({ title, subtitle, className, headerRight, children }: Card
 }
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "danger";
 };
 
 export function Button({ className, variant = "primary", ...props }: ButtonProps) {
@@ -41,6 +41,7 @@ export function Button({ className, variant = "primary", ...props }: ButtonProps
         variant === "primary" && "bg-brand-700 text-white shadow-soft hover:bg-brand-800",
         variant === "secondary" && "bg-slate-900 text-white hover:bg-slate-800",
         variant === "ghost" && "border border-slate-300 bg-white/70 text-slate-800 hover:bg-white",
+        variant === "danger" && "bg-rose-600 text-white hover:bg-rose-700",
         className,
       )}
     />
