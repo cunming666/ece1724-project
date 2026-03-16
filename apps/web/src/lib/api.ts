@@ -18,13 +18,18 @@ export function clearSessionToken(): void {
   localStorage.removeItem(SESSION_TOKEN_KEY);
 }
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+function buildAuthorizedHeaders(init?: RequestInit): Headers {
   const token = getSessionToken();
   const headers = new Headers(init?.headers ?? {});
-  headers.set("Content-Type", "application/json");
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
+  return headers;
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = buildAuthorizedHeaders(init);
+  headers.set("Content-Type", "application/json");
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -42,4 +47,21 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
 
   return (await response.json()) as T;
+}
+
+export async function apiFetchText(path: string, init?: RequestInit): Promise<string> {
+  const headers = buildAuthorizedHeaders(init);
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({ error: "Request failed" }))) as ApiError;
+    throw new Error(payload.error || "Request failed");
+  }
+
+  return response.text();
 }
