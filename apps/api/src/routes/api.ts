@@ -9,6 +9,7 @@ import { prisma } from "../lib/prisma.js";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { spacesClient, spacesConfig } from "../lib/spaces.js";
+
 const createEventSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
@@ -19,6 +20,124 @@ const createEventSchema = z.object({
 });
 
 const updateEventSchema = createEventSchema.partial();
+
+const importAttendeesCsvSchema = z
+  .object({
+    csvText: z.string().optional(),
+    fileId: z.string().optional(),
+  })
+  .refine((value) => Boolean(value.csvText?.trim() || value.fileId), {
+    message: "Either csvText or fileId is required",
+  });
+
+const csvEmailSchema = z.string().email();
+
+type CsvParsedRow = {
+  rowNumber: number;
+  name: string;
+  email: string;
+};
+
+type CsvIssue = {
+  rowNumber: number;
+  reason: string;
+};
+
+function parseAttendeeCsv(csvText: string): { rows: CsvParsedRow[]; issues: CsvIssue[] } {
+  const normalizedText = csvText.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  const rawLines = normalizedText.split("\n");
+  const nonEmptyLines = rawLines
+    .map((line, index) => ({
+      rowNumber: index + 1,
+      line: line.trim(),
+    }))
+    .filter((item) => item.line.length > 0);
+
+  if (!nonEmptyLines.length) {
+    return { rows: [], issues: [] };
+  }
+
+  let dataStartIndex = 0;
+  let columnOrder: "name-email" | "email-name" = "name-email";
+
+  const firstCells = nonEmptyLines[0].line.split(",").map((cell) => cell.trim().toLowerCase());
+
+  if (firstCells.length >= 2 && firstCells[0] === "name" && firstCells[1] === "email") {
+    dataStartIndex = 1;
+    columnOrder = "name-email";
+  } else if (firstCells.length >= 2 && firstCells[0] === "email" && firstCells[1] === "name") {
+    dataStartIndex = 1;
+    columnOrder = "email-name";
+  }
+
+  const rows: CsvParsedRow[] = [];
+  const issues: CsvIssue[] = [];
+
+  for (let i = dataStartIndex; i < nonEmptyLines.length; i += 1) {
+    const item = nonEmptyLines[i];
+    const cells = item.line.split(",").map((cell) => cell.trim());
+
+    if (cells.length !== 2) {
+      issues.push({
+        rowNumber: item.rowNumber,
+        reason: "Each row must contain exactly 2 columns",
+      });
+      continue;
+    }
+
+    const name = columnOrder === "name-email" ? cells[0] : cells[1];
+    const email = (columnOrder === "name-email" ? cells[1] : cells[0]).toLowerCase();
+
+    if (!name) {
+      issues.push({
+        rowNumber: item.rowNumber,
+        reason: "Name is required",
+      });
+      continue;
+    }
+
+    if (!csvEmailSchema.safeParse(email).success) {
+      issues.push({
+        rowNumber: item.rowNumber,
+        reason: "Invalid email format",
+      });
+      continue;
+    }
+
+    rows.push({
+      rowNumber: item.rowNumber,
+      name,
+      email,
+    });
+  }
+
+  return { rows, issues };
+}
+
+async function readCsvTextFromSpaces(fileId: string): Promise<string> {
+  const file = await prisma.fileObject.findUnique({
+    where: { id: fileId },
+  });
+
+  if (!file) {
+    throw new Error("File not found");
+  }
+
+  const getCommand = new GetObjectCommand({
+    Bucket: file.bucket,
+    Key: file.objectKey,
+  });
+
+  const response = await spacesClient.send(getCommand);
+  const body = response.Body;
+
+  if (!body || typeof body.transformToString !== "function") {
+    throw new Error("Failed to read CSV file from storage");
+  }
+
+  return body.transformToString();
+}
 
 async function assertEventAccess(role: UserRole, userId: string, eventId: string) {
   const event = await prisma.event.findUnique({
@@ -384,7 +503,7 @@ export function createApiRouter(io: Server) {
     }
   });
 
-  router.get("/my/events", requireAuth(["ORGANIZER"]), async (req, res, next) => {
+  router.get("/my/events", requireAuth(["ORGANIZER"]), async (_req, res, next) => {
     try {
       const items = await prisma.event.findMany({
         where: { organizerId: res.locals.auth.user.id },
@@ -397,7 +516,7 @@ export function createApiRouter(io: Server) {
     }
   });
 
-  router.get("/me/tickets", requireAuth(["ATTENDEE"]), async (req, res, next) => {
+  router.get("/me/tickets", requireAuth(["ATTENDEE"]), async (_req, res, next) => {
     try {
       const attendeeId = res.locals.auth.user.id;
       const tickets = await prisma.ticket.findMany({
@@ -865,6 +984,67 @@ export function createApiRouter(io: Server) {
       const ticketMap = new Map(tickets.map((ticket) => [ticket.id, ticket]));
       const attendeeMap = new Map(attendees.map((attendee) => [attendee.id, attendee]));
 
+      const registrations = await prisma.registration.findMany({
+        where: { eventId: req.params.eventId },
+        orderBy: [{ status: "asc" }, { registeredAt: "asc" }],
+      });
+
+      const registrationAttendeeIds = registrations.map((item) => item.attendeeId);
+      const registrationUsers = registrationAttendeeIds.length
+        ? await prisma.user.findMany({
+            where: {
+              id: { in: registrationAttendeeIds },
+            },
+          })
+        : [];
+
+      const registrationUserMap = new Map(registrationUsers.map((user) => [user.id, user]));
+
+      const confirmedAttendees = registrations
+        .filter((item) => item.status === "CONFIRMED")
+        .map((item) => ({
+          id: item.id,
+          attendeeId: item.attendeeId,
+          registeredAt: item.registeredAt,
+          attendee: (() => {
+            const attendee = registrationUserMap.get(item.attendeeId);
+            return attendee
+              ? {
+                  id: attendee.id,
+                  name: attendee.name,
+                  email: attendee.email,
+                }
+              : {
+                  id: "unknown",
+                  name: "Unknown",
+                  email: "unknown@example.com",
+                };
+          })(),
+        }));
+
+      const waitlistedAttendees = registrations
+        .filter((item) => item.status === "WAITLISTED")
+        .map((item) => ({
+          id: item.id,
+          attendeeId: item.attendeeId,
+          waitlistPosition: item.waitlistPosition,
+          registeredAt: item.registeredAt,
+          attendee: (() => {
+            const attendee = registrationUserMap.get(item.attendeeId);
+            return attendee
+              ? {
+                  id: attendee.id,
+                  name: attendee.name,
+                  email: attendee.email,
+                }
+              : {
+                  id: "unknown",
+                  name: "Unknown",
+                  email: "unknown@example.com",
+                };
+          })(),
+        }));
+
       const recentCheckins = checkins.map((item) => {
         const ticket = ticketMap.get(item.ticketId);
         const attendee = ticket ? attendeeMap.get(ticket.attendeeId) : undefined;
@@ -886,6 +1066,8 @@ export function createApiRouter(io: Server) {
       res.json({
         eventId: req.params.eventId,
         ...stats,
+        confirmedAttendees,
+        waitlistedAttendees,
         recentCheckins,
       });
     } catch (error) {
@@ -1012,6 +1194,7 @@ export function createApiRouter(io: Server) {
       next(error);
     }
   });
+
   router.post("/files/presign-upload", requireAuth(["ORGANIZER", "STAFF"]), async (req, res, next) => {
     try {
       const parsed = z
@@ -1056,7 +1239,8 @@ export function createApiRouter(io: Server) {
       next(error);
     }
   });
- router.get("/files/:fileId/download", requireAuth(), async (req, res, next) => {
+
+  router.get("/files/:fileId/download", requireAuth(), async (req, res, next) => {
     try {
       const file = await prisma.fileObject.findUnique({
         where: { id: req.params.fileId },
@@ -1091,19 +1275,162 @@ export function createApiRouter(io: Server) {
         return res.status(access.code).json({ error: access.error });
       }
 
-      const body = z.object({ fileId: z.string().optional() }).parse(req.body ?? {});
+      const body = importAttendeesCsvSchema.parse(req.body ?? {});
+
+      let csvText = body.csvText?.trim() ?? "";
+      if (!csvText && body.fileId) {
+        try {
+          csvText = (await readCsvTextFromSpaces(body.fileId)).trim();
+        } catch (error) {
+          return res.status(404).json({ error: (error as Error).message });
+        }
+      }
+
+      if (!csvText) {
+        return res.status(400).json({ error: "CSV contains no attendee rows" });
+      }
+
+      const parsedCsv = parseAttendeeCsv(csvText);
+      const totalRows = parsedCsv.rows.length + parsedCsv.issues.length;
+
+      if (totalRows === 0) {
+        return res.status(400).json({ error: "CSV contains no attendee rows" });
+      }
+
+      const issues: CsvIssue[] = [...parsedCsv.issues];
+      let invalidRows = parsedCsv.issues.length;
+      let duplicateRows = 0;
+      let importedRows = 0;
+      let confirmedRows = 0;
+      let waitlistedRows = 0;
+
+      let confirmedCount = await prisma.registration.count({
+        where: {
+          eventId: req.params.eventId,
+          status: "CONFIRMED",
+        },
+      });
+
+      let nextWaitlistPosition =
+        (await prisma.registration.count({
+          where: {
+            eventId: req.params.eventId,
+            status: "WAITLISTED",
+          },
+        })) + 1;
+
+      const seenEmailsInCsv = new Set<string>();
+      const importedUserDefaultPassword = "pass1234";
+
+      for (const row of parsedCsv.rows) {
+        if (seenEmailsInCsv.has(row.email)) {
+          duplicateRows += 1;
+          issues.push({
+            rowNumber: row.rowNumber,
+            reason: "Duplicate email inside CSV file",
+          });
+          continue;
+        }
+
+        seenEmailsInCsv.add(row.email);
+
+        let attendee = await prisma.user.findUnique({
+          where: { email: row.email },
+        });
+
+        if (!attendee) {
+          attendee = await prisma.user.create({
+            data: {
+              email: row.email,
+              name: row.name,
+              passwordHash: importedUserDefaultPassword,
+              role: "ATTENDEE",
+            },
+          });
+        }
+
+        const existingRegistration = await prisma.registration.findFirst({
+          where: {
+            eventId: req.params.eventId,
+            attendeeId: attendee.id,
+          },
+        });
+
+        if (existingRegistration) {
+          duplicateRows += 1;
+          issues.push({
+            rowNumber: row.rowNumber,
+            reason: "Attendee already registered for this event",
+          });
+          continue;
+        }
+
+        let status: RegistrationStatus = "CONFIRMED";
+        let waitlistPosition: number | null = null;
+
+        if (confirmedCount >= access.event.capacity) {
+          if (!access.event.waitlistEnabled) {
+            invalidRows += 1;
+            issues.push({
+              rowNumber: row.rowNumber,
+              reason: "Event is full and waitlist is disabled",
+            });
+            continue;
+          }
+
+          status = "WAITLISTED";
+          waitlistPosition = nextWaitlistPosition;
+          nextWaitlistPosition += 1;
+        }
+
+        await prisma.registration.create({
+          data: {
+            eventId: req.params.eventId,
+            attendeeId: attendee.id,
+            status,
+            waitlistPosition,
+          },
+        });
+
+        if (status === "CONFIRMED") {
+          await createTicket(req.params.eventId, attendee.id);
+          confirmedCount += 1;
+          confirmedRows += 1;
+        } else {
+          waitlistedRows += 1;
+        }
+
+        importedRows += 1;
+      }
+
+      const summaryPayload = {
+        totalRows,
+        importedRows,
+        invalidRows,
+        duplicateRows,
+        confirmedRows,
+        waitlistedRows,
+      };
+
+      const summaryText = JSON.stringify(summaryPayload);
 
       const job = await prisma.importJob.create({
         data: {
           eventId: req.params.eventId,
-          fileId: body.fileId ?? "placeholder-file-id",
+          fileId: body.fileId ?? `inline-csv-${Date.now()}`,
           status: "COMPLETED",
-          summary: "CSV import skeleton completed 0 rows",
+          summary: summaryText,
           finishedAt: new Date(),
         },
       });
 
-      res.status(201).json(job);
+      await emitAttendance(io, req.params.eventId);
+
+      res.status(201).json({
+        job,
+        summary: summaryPayload,
+        issues,
+      });
     } catch (error) {
       next(error);
     }
