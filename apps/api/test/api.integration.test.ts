@@ -265,7 +265,14 @@ describe("Organizer and attendee workspace APIs", () => {
 
     const qrResponse = await api.get(`/api/tickets/${ticketId}/qr`).set("Authorization", `Bearer ${attendee.token}`).expect(200);
 
-    expect(qrResponse.text).toContain("<svg");
+    const qrContent =
+      typeof qrResponse.text === "string" && qrResponse.text.length > 0
+        ? qrResponse.text
+        : Buffer.isBuffer(qrResponse.body)
+          ? qrResponse.body.toString("utf8")
+          : String(qrResponse.body ?? "");
+
+    expect(qrContent).toContain("<svg");
   });
 });
 
@@ -335,5 +342,132 @@ describe("Check-in idempotency and RBAC", () => {
 
     expect(dashboard.body.checkedIn).toBe(1);
     expect(dashboard.body.recentCheckins).toHaveLength(2);
+  });
+});
+
+describe("CSV attendee import", () => {
+  test("imports valid rows, creates tickets, and reports duplicates/invalid rows", async () => {
+    const organizer = await signUpAndSignIn({
+      email: "org+csv@utoronto.ca",
+      name: "Org Csv",
+      role: "ORGANIZER",
+    });
+
+    const existingAttendee = await signUpAndSignIn({
+      email: "existing@utoronto.ca",
+      name: "Existing Attendee",
+      role: "ATTENDEE",
+    });
+
+    const createdEvent = await api
+      .post("/api/events")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        title: "CSV Import Event",
+        description: "csv import",
+        location: "BA 1130",
+        startTime: new Date(Date.now() + 3600_000).toISOString(),
+        capacity: 2,
+        waitlistEnabled: true,
+      })
+      .expect(201);
+
+    const eventId = createdEvent.body.id as string;
+
+    await api.post(`/api/events/${eventId}/publish`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
+
+    await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${existingAttendee.token}`).expect(201);
+
+    const csvText = [
+      "name,email",
+      "Alice,alice@utoronto.ca",
+      "Bob,bob@utoronto.ca",
+      "NoEmail,not-an-email",
+      "Existing Attendee,existing@utoronto.ca",
+      "Alice Again,alice@utoronto.ca",
+    ].join("\n");
+
+    const response = await api
+      .post(`/api/events/${eventId}/import-attendees-csv`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({ csvText })
+      .expect(201);
+
+    expect(response.body.summary.totalRows).toBe(5);
+    expect(response.body.summary.importedRows).toBe(2);
+    expect(response.body.summary.invalidRows).toBe(1);
+    expect(response.body.summary.duplicateRows).toBe(2);
+    expect(response.body.summary.confirmedRows).toBe(1);
+    expect(response.body.summary.waitlistedRows).toBe(1);
+
+    expect(response.body.issues).toHaveLength(3);
+
+    const attendees = await api.get(`/api/events/${eventId}/attendees`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
+
+    expect(attendees.body.items).toHaveLength(3);
+
+    const importedAlice = attendees.body.items.find((item: { attendee: { email: string } | null }) => item.attendee?.email === "alice@utoronto.ca");
+    const importedBob = attendees.body.items.find((item: { attendee: { email: string } | null }) => item.attendee?.email === "bob@utoronto.ca");
+
+    expect(importedAlice?.status).toBe("CONFIRMED");
+    expect(importedBob?.status).toBe("WAITLISTED");
+
+    const aliceUser = await prisma.user.findUnique({
+      where: { email: "alice@utoronto.ca" },
+    });
+    expect(aliceUser).toBeTruthy();
+    expect(aliceUser?.role).toBe("ATTENDEE");
+
+    const aliceTicket = aliceUser
+      ? await prisma.ticket.findUnique({
+          where: {
+            eventId_attendeeId: {
+              eventId,
+              attendeeId: aliceUser.id,
+            },
+          },
+        })
+      : null;
+
+    expect(aliceTicket).toBeTruthy();
+
+    const importJobs = await prisma.importJob.findMany({
+      where: { eventId },
+    });
+
+    expect(importJobs).toHaveLength(1);
+    expect(importJobs[0]?.status).toBe("COMPLETED");
+    expect(importJobs[0]?.summary).toContain('"importedRows":2');
+  });
+
+  test("rejects empty csv imports", async () => {
+    const organizer = await signUpAndSignIn({
+      email: "org+csv-empty@utoronto.ca",
+      name: "Org Csv Empty",
+      role: "ORGANIZER",
+    });
+
+    const createdEvent = await api
+      .post("/api/events")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        title: "CSV Empty Event",
+        description: "csv empty",
+        location: "BA 1130",
+        startTime: new Date(Date.now() + 3600_000).toISOString(),
+        capacity: 5,
+        waitlistEnabled: true,
+      })
+      .expect(201);
+
+    const eventId = createdEvent.body.id as string;
+
+    await api.post(`/api/events/${eventId}/publish`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
+
+    await api
+      .post(`/api/events/${eventId}/import-attendees-csv`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({ csvText: "name,email\n" })
+      .expect(400);
   });
 });
