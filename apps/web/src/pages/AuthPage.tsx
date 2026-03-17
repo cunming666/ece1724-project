@@ -80,7 +80,7 @@ export function AuthPage() {
         body: JSON.stringify(signUpForm),
       }),
     onSuccess: () => {
-      setNotice({ tone: "success", text: "注册成功，请使用新账号登录。" });
+      setNotice({ tone: "success", text: "Registration successful. Please sign in with your new account." });
       setMode("signin");
       setSignInForm((prev) => ({ ...prev, email: signUpForm.email }));
     },
@@ -126,16 +126,17 @@ export function AuthPage() {
           Sign In First, Then Enter Control Panel
         </h1>
         <p className="mt-4 max-w-xl text-sm text-slate-200 md:text-base">
-          先完成身份认证，再进入活动控制面板。你可以使用已有账号登录，或者注册新账号；也可以点击快速演示按钮一键注入数据并登录。
+          Complete authentication first, then enter the event control panel. You can sign in with an existing account,
+          register a new account, or click the quick demo button to seed demo data and sign in instantly.
         </p>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-            <p className="text-xs text-slate-200">入口流程</p>
+            <p className="text-xs text-slate-200">Entry Flow</p>
             <p className="mt-1 text-lg font-semibold">Auth ➜ Panel ➜ Dashboard</p>
           </div>
           <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-            <p className="text-xs text-slate-200">演示支持</p>
+            <p className="text-xs text-slate-200">Demo Support</p>
             <p className="mt-1 text-lg font-semibold">One-click Demo Seed</p>
           </div>
         </div>
@@ -144,17 +145,17 @@ export function AuthPage() {
       <Card className="stagger-enter stagger-2" title="Authentication" subtitle="Use account login, register new account, or quick demo.">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <Button variant={mode === "signin" ? "secondary" : "ghost"} onClick={() => setMode("signin")}>
-            登录
+            Sign In
           </Button>
           <Button variant={mode === "signup" ? "secondary" : "ghost"} onClick={() => setMode("signup")}>
-            注册
+            Sign Up
           </Button>
           <Button
             className="ml-auto"
             onClick={() => quickDemo.mutate()}
             disabled={quickDemo.isPending}
           >
-            {quickDemo.isPending ? "准备演示中..." : "快速启动演示"}
+            {quickDemo.isPending ? "Preparing Demo..." : "Quick Start Demo"}
           </Button>
         </div>
 
@@ -193,13 +194,13 @@ export function AuthPage() {
             </div>
 
             <Button onClick={() => signIn.mutate()} className="w-full" disabled={signIn.isPending}>
-              {signIn.isPending ? "登录中..." : "登录并进入控制面板"}
+              {signIn.isPending ? "Signing In..." : "Sign In and Enter Control Panel"}
             </Button>
 
             <div className="rounded-xl bg-slate-100/80 px-3 py-2 text-xs text-slate-700">
-              没有账户？
+              Don't have an account?
               <button className="ml-1 font-semibold text-brand-700 underline" onClick={() => setMode("signup")}>
-                去注册
+                Sign Up
               </button>
             </div>
           </div>
@@ -240,13 +241,13 @@ export function AuthPage() {
             </div>
 
             <Button onClick={() => signUp.mutate()} className="w-full" disabled={signUp.isPending}>
-              {signUp.isPending ? "注册中..." : "创建账户"}
+              {signUp.isPending ? "Signing Up..." : "Create Account"}
             </Button>
 
             <div className="rounded-xl bg-slate-100/80 px-3 py-2 text-xs text-slate-700">
-              已有账户？
+              Already have an account?
               <button className="ml-1 font-semibold text-brand-700 underline" onClick={() => setMode("signin")}>
-                返回登录
+                Back to Sign In
               </button>
             </div>
           </div>
