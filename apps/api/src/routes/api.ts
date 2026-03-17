@@ -6,7 +6,9 @@ import QRCode from "qrcode";
 import { requireAuth } from "../lib/auth.js";
 import { hashToken, randomToken } from "../lib/security.js";
 import { prisma } from "../lib/prisma.js";
-
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { spacesClient, spacesConfig } from "../lib/spaces.js";
 const createEventSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
@@ -911,7 +913,6 @@ export function createApiRouter(io: Server) {
       next(error);
     }
   });
-
   router.post("/files/presign-upload", requireAuth(["ORGANIZER", "STAFF"]), async (req, res, next) => {
     try {
       const parsed = z
@@ -923,8 +924,18 @@ export function createApiRouter(io: Server) {
         })
         .parse(req.body);
 
-      const bucket = process.env.STORAGE_BUCKET ?? "local-dev";
+      const bucket = spacesConfig.bucket;
       const objectKey = `${Date.now()}-${parsed.fileName}`;
+
+      const putCommand = new PutObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+        ContentType: parsed.mimeType,
+      });
+
+      const uploadUrl = await getSignedUrl(spacesClient, putCommand, {
+        expiresIn: 60 * 10,
+      });
 
       const file = await prisma.fileObject.create({
         data: {
@@ -939,14 +950,14 @@ export function createApiRouter(io: Server) {
 
       res.status(201).json({
         file,
-        uploadUrl: `https://example.invalid/upload/${bucket}/${objectKey}`,
+        uploadUrl,
+        method: "PUT",
       });
     } catch (error) {
       next(error);
     }
   });
-
-  router.get("/files/:fileId/download", requireAuth(), async (req, res, next) => {
+ router.get("/files/:fileId/download", requireAuth(), async (req, res, next) => {
     try {
       const file = await prisma.fileObject.findUnique({
         where: { id: req.params.fileId },
@@ -956,9 +967,18 @@ export function createApiRouter(io: Server) {
         return res.status(404).json({ error: "File not found" });
       }
 
+      const getCommand = new GetObjectCommand({
+        Bucket: file.bucket,
+        Key: file.objectKey,
+      });
+
+      const downloadUrl = await getSignedUrl(spacesClient, getCommand, {
+        expiresIn: 60 * 10,
+      });
+
       res.json({
         file,
-        downloadUrl: `https://example.invalid/download/${file.bucket}/${file.objectKey}`,
+        downloadUrl,
       });
     } catch (error) {
       next(error);
