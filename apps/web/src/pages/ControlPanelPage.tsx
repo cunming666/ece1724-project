@@ -43,6 +43,30 @@ type Notice = {
   text: string;
 };
 
+type CsvImportIssue = {
+  rowNumber: number;
+  reason: string;
+};
+
+type CsvImportSummary = {
+  totalRows: number;
+  importedRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  confirmedRows: number;
+  waitlistedRows: number;
+};
+
+type CsvImportResponse = {
+  job: {
+    id: string;
+    status: string;
+    summary: string | null;
+  };
+  summary: CsvImportSummary;
+  issues: CsvImportIssue[];
+};
+
 function NoticeBanner({ notice }: { notice: Notice }) {
   return (
     <div
@@ -57,6 +81,22 @@ function NoticeBanner({ notice }: { notice: Notice }) {
       {notice.text}
     </div>
   );
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    };
+
+    reader.onerror = () => {
+      reject(new Error("Failed to read CSV file."));
+    };
+
+    reader.readAsText(file);
+  });
 }
 
 export function ControlPanelPage() {
@@ -76,6 +116,8 @@ export function ControlPanelPage() {
 
   const [selectedEventId, setSelectedEventId] = useState("");
   const [staffEmail, setStaffEmail] = useState("");
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvImportResult, setCsvImportResult] = useState<CsvImportResponse | null>(null);
 
   const eventsQuery = useQuery({
     queryKey: ["events"],
@@ -242,6 +284,40 @@ export function ControlPanelPage() {
     onSuccess: () => {
       setNotice({ tone: "success", text: "Staff removed successfully." });
       queryClient.invalidateQueries({ queryKey: ["event-staff", selectedEventId] });
+    },
+    onError: (err: Error) => {
+      setNotice({ tone: "error", text: err.message });
+    },
+  });
+
+  const importCsv = useMutation({
+    mutationFn: async () => {
+      if (!selectedEventId) {
+        throw new Error("Please select one of your published events first.");
+      }
+      if (!csvFile) {
+        throw new Error("Please choose a CSV file first.");
+      }
+
+      const csvText = await readFileAsText(csvFile);
+      if (!csvText.trim()) {
+        throw new Error("CSV file is empty.");
+      }
+
+      return apiFetch<CsvImportResponse>(`/api/events/${selectedEventId}/import-attendees-csv`, {
+        method: "POST",
+        body: JSON.stringify({ csvText }),
+      });
+    },
+    onSuccess: (payload) => {
+      setCsvImportResult(payload);
+      setNotice({
+        tone: "success",
+        text: `CSV import completed. Imported ${payload.summary.importedRows} row(s), ${payload.summary.duplicateRows} duplicate row(s), ${payload.summary.invalidRows} invalid row(s).`,
+      });
+      setCsvFile(null);
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["my-events"] });
     },
     onError: (err: Error) => {
       setNotice({ tone: "error", text: err.message });
@@ -538,6 +614,135 @@ export function ControlPanelPage() {
                   )}
                 </div>
               </Card>
+
+              <Card
+                className="stagger-enter stagger-5"
+                title="CSV Attendee Import"
+                subtitle="Upload a simple CSV file with name,email rows for one of your published events."
+                headerRight={<Pill tone="brand">CSV Import</Pill>}
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <FieldLabel>Select Published Event</FieldLabel>
+                    <Select
+                      value={selectedEventId}
+                      onChange={(e) => {
+                        setSelectedEventId(e.target.value);
+                        setCsvImportResult(null);
+                      }}
+                    >
+                      <option value="">Choose one of your published events</option>
+                      {myPublishedEvents.map((event) => (
+                        <option key={event.id} value={event.id}>
+                          {event.title} ({event.status})
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div>
+                    <FieldLabel>CSV File</FieldLabel>
+<Input
+  type="file"
+  accept=".csv,text/csv"
+  onChange={(e) => {
+    const file = e.target.files?.[0] ?? null;
+    setCsvFile(file);
+  }}
+/>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span>Expected format:</span>
+                    <a
+                      href="/sample-attendees.csv"
+                      download
+                      className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-brand-300 hover:text-brand-700"
+                    >
+                      Download Sample CSV
+                    </a>
+                  </div>
+                  <div className="mt-2 whitespace-pre-wrap rounded-xl bg-white px-3 py-3 font-mono text-xs text-slate-700">
+                    {"name,email\nAlice,alice@example.com\nBob,bob@example.com"}
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <Button onClick={() => importCsv.mutate()} disabled={importCsv.isPending || !selectedEventId || !csvFile}>
+                    {importCsv.isPending ? "Importing..." : "Import CSV"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setCsvFile(null);
+                      setCsvImportResult(null);
+                    }}
+                    disabled={importCsv.isPending}
+                  >
+                    Clear
+                  </Button>
+                  <p className="text-xs text-slate-600">{csvFile ? `Selected: ${csvFile.name}` : "No file selected yet."}</p>
+                </div>
+
+                {csvImportResult ? (
+                  <div className="mt-5 space-y-4">
+                    <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                        <p className="text-xs text-slate-500">Total Rows</p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.totalRows}</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                        <p className="text-xs text-slate-500">Imported</p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.importedRows}</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                        <p className="text-xs text-slate-500">Invalid</p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.invalidRows}</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                        <p className="text-xs text-slate-500">Duplicates</p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.duplicateRows}</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                        <p className="text-xs text-slate-500">Confirmed</p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.confirmedRows}</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                        <p className="text-xs text-slate-500">Waitlisted</p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.waitlistedRows}</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                      Import finished: {csvImportResult.summary.importedRows} row(s) imported,{" "}
+                      {csvImportResult.summary.duplicateRows} duplicate row(s),{" "}
+                      {csvImportResult.summary.invalidRows} invalid row(s).
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">Import Issues</p>
+                      {csvImportResult.issues.length ? (
+                        <div className="mt-3 space-y-2">
+                          {csvImportResult.issues.map((issue, index) => (
+                            <div
+                              key={`${issue.rowNumber}-${issue.reason}-${index}`}
+                              className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+                            >
+                              Row {issue.rowNumber}: {issue.reason}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                          No issues found in this CSV import.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </Card>
             </>
           ) : currentUser?.role === "ATTENDEE" ? (
             <>
@@ -604,7 +809,7 @@ export function ControlPanelPage() {
         </div>
 
         <Card
-          className="stagger-enter stagger-5"
+          className="stagger-enter stagger-6"
           title="Published Event Board"
           subtitle="Browse public events, register as attendee, or open dashboards for operations roles."
           headerRight={<Pill tone="slate">Live Feed</Pill>}

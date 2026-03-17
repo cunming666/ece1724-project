@@ -4,11 +4,36 @@ import { apiFetch } from "../lib/api";
 import { socket } from "../lib/socket";
 import { Button, Card, FieldLabel, Input, Pill } from "../components/ui";
 
+type DashboardAttendeeItem = {
+  id: string;
+  attendeeId: string;
+  registeredAt: string;
+  attendee: {
+    id: string;
+    name: string;
+    email: string;
+  };
+};
+
+type DashboardWaitlistedItem = {
+  id: string;
+  attendeeId: string;
+  waitlistPosition: number | null;
+  registeredAt: string;
+  attendee: {
+    id: string;
+    name: string;
+    email: string;
+  };
+};
+
 type DashboardData = {
   eventId: string;
   confirmed: number;
   waitlisted: number;
   checkedIn: number;
+  confirmedAttendees: DashboardAttendeeItem[];
+  waitlistedAttendees: DashboardWaitlistedItem[];
   recentCheckins: Array<{
     id: string;
     method: string;
@@ -168,8 +193,70 @@ export function DashboardPage() {
         </Card>
       </section>
 
+      <section className="mt-5 grid gap-5 xl:grid-cols-2">
+        <Card
+          className="stagger-enter stagger-4"
+          title="Confirmed Attendee List"
+          subtitle="All confirmed attendees currently eligible for check-in"
+        >
+          <div className="space-y-3">
+            {data?.confirmedAttendees?.length ? (
+              data.confirmedAttendees.map((item) => (
+                <article key={item.id} className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">{item.attendee.name}</p>
+                      <p className="text-sm text-slate-600">{item.attendee.email}</p>
+                    </div>
+                    <Pill tone="brand">Confirmed</Pill>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Registered at {new Date(item.registeredAt).toLocaleString()}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
+                No confirmed attendees yet.
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <Card
+          className="stagger-enter stagger-5"
+          title="Waitlisted Attendee List"
+          subtitle="Attendees waiting for promotion when slots become available"
+        >
+          <div className="space-y-3">
+            {data?.waitlistedAttendees?.length ? (
+              data.waitlistedAttendees.map((item) => (
+                <article key={item.id} className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">{item.attendee.name}</p>
+                      <p className="text-sm text-slate-600">{item.attendee.email}</p>
+                    </div>
+                    <Pill tone="warm">
+                      {item.waitlistPosition ? `Waitlist #${item.waitlistPosition}` : "Waitlisted"}
+                    </Pill>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Registered at {new Date(item.registeredAt).toLocaleString()}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
+                No waitlisted attendees.
+              </div>
+            )}
+          </div>
+        </Card>
+      </section>
+
       <Card
-        className="stagger-enter stagger-4 mt-5"
+        className="stagger-enter stagger-6 mt-5"
         title="Manual Check-in"
         subtitle="Enter a ticket ID to perform a manual check-in."
       >
@@ -191,7 +278,7 @@ export function DashboardPage() {
       </Card>
 
       <Card
-        className="stagger-enter stagger-5 mt-5"
+        className="stagger-enter stagger-7 mt-5"
         title="Recent Check-ins"
         subtitle="Latest 10 records ordered by check-in time"
         headerRight={
