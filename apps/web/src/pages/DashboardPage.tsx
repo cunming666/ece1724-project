@@ -1,8 +1,8 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiFetch } from "../lib/api";
 import { socket } from "../lib/socket";
-import { Button, Card, Pill } from "../components/ui";
+import { Button, Card, FieldLabel, Input, Pill } from "../components/ui";
 
 type DashboardData = {
   eventId: string;
@@ -23,11 +23,20 @@ type DashboardData = {
   }>;
 };
 
+type Notice = {
+  tone: "success" | "error";
+  text: string;
+};
+
 export function DashboardPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const [data, setData] = useState<DashboardData | null>(null);
   const [message, setMessage] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  const [ticketId, setTicketId] = useState("");
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
 
   async function loadDashboard() {
     if (!eventId) return;
@@ -40,6 +49,40 @@ export function DashboardPage() {
       setMessage((error as Error).message);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function manualCheckIn() {
+    if (!ticketId.trim()) {
+      setNotice({ tone: "error", text: "Please enter a ticket ID." });
+      return;
+    }
+
+    setIsCheckingIn(true);
+    setNotice(null);
+
+    try {
+      const payload = await apiFetch<{
+        id: string;
+        isDuplicate: boolean;
+      }>("/api/checkins/manual", {
+        method: "POST",
+        body: JSON.stringify({
+          ticketId: ticketId.trim(),
+        }),
+      });
+
+      setNotice({
+        tone: payload.isDuplicate ? "error" : "success",
+        text: payload.isDuplicate ? "Duplicate check-in recorded." : "Manual check-in successful.",
+      });
+
+      setTicketId("");
+      await loadDashboard();
+    } catch (error) {
+      setNotice({ tone: "error", text: (error as Error).message });
+    } finally {
+      setIsCheckingIn(false);
     }
   }
 
@@ -76,7 +119,9 @@ export function DashboardPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-200">Live Operations</p>
-            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">Real-time Attendance Dashboard</h1>
+            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">
+              Real-time Attendance Dashboard
+            </h1>
             <p className="mt-2 text-sm text-slate-200">Event ID: {eventId}</p>
           </div>
           <Link
@@ -94,7 +139,21 @@ export function DashboardPage() {
       </section>
 
       {message ? (
-        <p className="stagger-enter mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{message}</p>
+        <p className="stagger-enter mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+          {message}
+        </p>
+      ) : null}
+
+      {notice ? (
+        <div
+          className={`stagger-enter mt-5 rounded-2xl border px-4 py-3 text-sm font-medium ${
+            notice.tone === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-rose-200 bg-rose-50 text-rose-700"
+          }`}
+        >
+          {notice.text}
+        </div>
       ) : null}
 
       <section className="mt-6 grid gap-4 md:grid-cols-3">
@@ -111,6 +170,28 @@ export function DashboardPage() {
 
       <Card
         className="stagger-enter stagger-4 mt-5"
+        title="Manual Check-in"
+        subtitle="Enter a ticket ID to perform a manual check-in."
+      >
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <div>
+            <FieldLabel>Ticket ID</FieldLabel>
+            <Input
+              placeholder="Paste ticket ID here"
+              value={ticketId}
+              onChange={(e) => setTicketId(e.target.value)}
+            />
+          </div>
+          <div className="flex items-end">
+            <Button onClick={manualCheckIn} disabled={isCheckingIn}>
+              {isCheckingIn ? "Checking in..." : "Manual Check-in"}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        className="stagger-enter stagger-5 mt-5"
         title="Recent Check-ins"
         subtitle="Latest 10 records ordered by check-in time"
         headerRight={
@@ -129,7 +210,9 @@ export function DashboardPage() {
                     <p className="text-sm text-slate-600">{item.ticket.attendee.email}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Pill tone={item.isDuplicate ? "warm" : "brand"}>{item.isDuplicate ? "Duplicate" : "Valid"}</Pill>
+                    <Pill tone={item.isDuplicate ? "warm" : "brand"}>
+                      {item.isDuplicate ? "Duplicate" : "Valid"}
+                    </Pill>
                     <Pill tone="slate">{item.method}</Pill>
                   </div>
                 </div>
