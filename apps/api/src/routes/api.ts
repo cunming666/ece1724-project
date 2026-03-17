@@ -79,6 +79,29 @@ async function emitAttendance(io: Server, eventId: string): Promise<void> {
   });
 }
 
+async function getTicketCheckinSummary(ticketId: string) {
+  const validCheckin = await prisma.checkinLog.findFirst({
+    where: {
+      ticketId,
+      isDuplicate: false,
+    },
+    orderBy: { checkedInAt: "desc" },
+  });
+
+  const duplicateCount = await prisma.checkinLog.count({
+    where: {
+      ticketId,
+      isDuplicate: true,
+    },
+  });
+
+  return {
+    checkedIn: Boolean(validCheckin),
+    checkedInAt: validCheckin?.checkedInAt ?? null,
+    duplicateCount,
+  };
+}
+
 async function createTicket(eventId: string, attendeeId: string) {
   const token = randomToken();
 
@@ -356,6 +379,68 @@ export function createApiRouter(io: Server) {
         orderBy: { startTime: "asc" },
       });
       res.json({ items: events });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/my/events", requireAuth(["ORGANIZER"]), async (req, res, next) => {
+    try {
+      const items = await prisma.event.findMany({
+        where: { organizerId: res.locals.auth.user.id },
+        orderBy: [{ createdAt: "desc" }, { startTime: "asc" }],
+      });
+
+      res.json({ items });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/me/tickets", requireAuth(["ATTENDEE"]), async (req, res, next) => {
+    try {
+      const attendeeId = res.locals.auth.user.id;
+      const tickets = await prisma.ticket.findMany({
+        where: { attendeeId },
+        include: {
+          event: true,
+        },
+        orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
+      });
+
+      const registrations = await prisma.registration.findMany({
+        where: { attendeeId },
+      });
+      const registrationMap = new Map(registrations.map((item) => [item.eventId, item]));
+
+      const items = await Promise.all(
+        tickets.map(async (ticket) => ({
+          id: ticket.id,
+          issuedAt: ticket.issuedAt,
+          revokedAt: ticket.revokedAt,
+          event: {
+            id: ticket.event.id,
+            title: ticket.event.title,
+            location: ticket.event.location,
+            startTime: ticket.event.startTime,
+            status: ticket.event.status,
+          },
+          registration: (() => {
+            const registration = registrationMap.get(ticket.eventId);
+            if (!registration) {
+              return null;
+            }
+            return {
+              id: registration.id,
+              status: registration.status,
+              registeredAt: registration.registeredAt,
+            };
+          })(),
+          checkin: await getTicketCheckinSummary(ticket.id),
+        })),
+      );
+
+      res.json({ items });
     } catch (error) {
       next(error);
     }
@@ -835,6 +920,20 @@ export function createApiRouter(io: Server) {
       }
       if (auth.user.role === "ORGANIZER" && event.organizerId !== auth.user.id) {
         return res.status(403).json({ error: "Forbidden" });
+      }
+      if (auth.user.role === "STAFF") {
+        const assignment = await prisma.staffAssignment.findUnique({
+          where: {
+            eventId_userId: {
+              eventId: ticket.eventId,
+              userId: auth.user.id,
+            },
+          },
+        });
+
+        if (!assignment) {
+          return res.status(403).json({ error: "Staff not assigned to this event" });
+        }
       }
 
       const svg = await QRCode.toString(ticket.qrPayload, { type: "svg" });

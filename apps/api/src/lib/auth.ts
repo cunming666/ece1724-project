@@ -58,7 +58,7 @@ export async function resolveSession(req: Request): Promise<AuthSession | null> 
       id: session.user.id,
       email: session.user.email,
       name: session.user.name,
-      role: session.user.role,
+      role: session.user.role as UserRole,
     },
   };
 }
