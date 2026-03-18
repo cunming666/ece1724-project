@@ -118,7 +118,10 @@ export function ControlPanelPage() {
   const [staffEmail, setStaffEmail] = useState("");
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvImportResult, setCsvImportResult] = useState<CsvImportResponse | null>(null);
-
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [changePasswordMessage, setChangePasswordMessage] = useState("");
   const eventsQuery = useQuery({
     queryKey: ["events"],
     queryFn: () => apiFetch<{ items: EventItem[] }>("/api/events"),
@@ -323,7 +326,41 @@ export function ControlPanelPage() {
       setNotice({ tone: "error", text: err.message });
     },
   });
+  const changePassword = useMutation({
+    mutationFn: async () => {
+      if (!currentPassword.trim()) {
+        throw new Error("Please enter your current password.");
+      }
+      if (!newPassword.trim()) {
+        throw new Error("Please enter a new password.");
+      }
+      if (newPassword.length < 6) {
+        throw new Error("New password must be at least 6 characters.");
+      }
+      if (newPassword !== confirmNewPassword) {
+        throw new Error("New password and confirm password do not match.");
+      }
 
+      return apiFetch<{ message: string }>("/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+        }),
+      });
+    },
+    onSuccess: (payload) => {
+      setChangePasswordMessage(payload.message || "Password updated successfully.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setNotice({ tone: "success", text: "Password updated successfully." });
+    },
+    onError: (err: Error) => {
+      setChangePasswordMessage(err.message);
+      setNotice({ tone: "error", text: err.message });
+    },
+  });
   const signOut = useMutation({
     mutationFn: () => apiFetch("/auth/sign-out", { method: "POST" }),
     onSuccess: () => {
@@ -653,7 +690,7 @@ export function ControlPanelPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                               <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <span>Expected format:</span>
                     <a
@@ -667,6 +704,10 @@ export function ControlPanelPage() {
                   <div className="mt-2 whitespace-pre-wrap rounded-xl bg-white px-3 py-3 font-mono text-xs text-slate-700">
                     {"name,email\nAlice,alice@example.com\nBob,bob@example.com"}
                   </div>
+                  <p className="mt-3 text-xs text-amber-700">
+                    Imported new users will be created with the default password <span className="font-semibold">pass1234</span>.
+                    Please remind new users to sign in and change their password as soon as possible.
+                  </p>
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -807,6 +848,52 @@ export function ControlPanelPage() {
             </>
           )}
         </div>
+
+                <Card
+          className="stagger-enter stagger-6"
+          title="Change Password"
+          subtitle="Update your account password after signing in."
+          headerRight={<Pill tone="brand">Account</Pill>}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <FieldLabel>Current Password</FieldLabel>
+              <Input
+                type="password"
+                placeholder="Enter current password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <FieldLabel>New Password</FieldLabel>
+              <Input
+                type="password"
+                placeholder="Enter new password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <FieldLabel>Confirm New Password</FieldLabel>
+              <Input
+                type="password"
+                placeholder="Re-enter new password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button onClick={() => changePassword.mutate()} disabled={changePassword.isPending}>
+              {changePassword.isPending ? "Updating..." : "Change Password"}
+            </Button>
+            {changePasswordMessage ? <p className="text-sm text-slate-600">{changePasswordMessage}</p> : null}
+          </div>
+        </Card>
 
         <Card
           className="stagger-enter stagger-6"
