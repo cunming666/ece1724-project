@@ -16,6 +16,11 @@ const signInSchema = z.object({
   password: z.string().min(6),
 });
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(6),
+  newPassword: z.string().min(6),
+});
+
 export function createAuthRouter() {
   const router = Router();
 
@@ -90,6 +95,37 @@ export function createAuthRouter() {
           role: user.role,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+    router.post("/change-password", requireAuth(), async (req, res, next) => {
+    try {
+      const parsed = changePasswordSchema.parse(req.body);
+
+      const userId = res.locals.auth.user.id;
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.passwordHash !== parsed.currentPassword) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          passwordHash: parsed.newPassword,
+        },
+      });
+
+      res.json({ message: "Password updated successfully" });
     } catch (error) {
       next(error);
     }
