@@ -67,6 +67,21 @@ type CsvImportResponse = {
   issues: CsvImportIssue[];
 };
 
+type PresignUploadResponse = {
+  file: {
+    id: string;
+    ownerId: string;
+    bucket: string;
+    objectKey: string;
+    mimeType: string;
+    size: number;
+    kind: string;
+    createdAt: string;
+  };
+  uploadUrl: string;
+  method: "PUT";
+};
+
 function NoticeBanner({ notice }: { notice: Notice }) {
   return (
     <div
@@ -295,23 +310,46 @@ export function ControlPanelPage() {
 
   const importCsv = useMutation({
     mutationFn: async () => {
-      if (!selectedEventId) {
-        throw new Error("Please select one of your published events first.");
-      }
-      if (!csvFile) {
-        throw new Error("Please choose a CSV file first.");
-      }
+  if (!selectedEventId) {
+    throw new Error("Please select one of your published events first.");
+  }
+  if (!csvFile) {
+    throw new Error("Please choose a CSV file first.");
+  }
+  if (csvFile.size === 0) {
+    throw new Error("CSV file is empty.");
+  }
 
-      const csvText = await readFileAsText(csvFile);
-      if (!csvText.trim()) {
-        throw new Error("CSV file is empty.");
-      }
+  const presign = await apiFetch<PresignUploadResponse>("/api/files/presign-upload", {
+    method: "POST",
+    body: JSON.stringify({
+      fileName: csvFile.name,
+      mimeType: csvFile.type || "text/csv",
+      size: csvFile.size,
+      kind: "attendee-import",
+    }),
+  });
 
-      return apiFetch<CsvImportResponse>(`/api/events/${selectedEventId}/import-attendees-csv`, {
-        method: "POST",
-        body: JSON.stringify({ csvText }),
-      });
+  const uploadResponse = await fetch(presign.uploadUrl, {
+    method: presign.method,
+    headers: {
+      "Content-Type": csvFile.type || "text/csv",
     },
+    body: csvFile,
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error("Failed to upload CSV file to cloud storage.");
+  }
+
+  return apiFetch<CsvImportResponse>(`/api/events/${selectedEventId}/import-attendees-csv`, {
+    method: "POST",
+    body: JSON.stringify({
+      fileId: presign.file.id,
+    }),
+  });
+},
+    
     onSuccess: (payload) => {
       setCsvImportResult(payload);
       setNotice({
