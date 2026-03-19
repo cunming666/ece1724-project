@@ -266,7 +266,6 @@ export function StaffCheckinPage() {
       //   throw new Error("No camera devices were found.");
       // }
 
-      // // 优先找后置/环境摄像头；找不到就退回第一个可用摄像头
       // const preferredCamera =
       //   cameras.find((camera) => /back|rear|environment/i.test(camera.label)) ?? cameras[0];
 
@@ -297,7 +296,6 @@ export function StaffCheckinPage() {
         throw new Error("No camera devices were found.");
       }
 
-      // 优先找后置/环境摄像头；找不到就退回第一个可用摄像头
       const preferredCamera =
         cameras.find((camera) => /back|rear|environment/i.test(camera.label)) ?? fallbackCamera;
 
