@@ -5,6 +5,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { AttendeeTicketsPage } from "./pages/AttendeeTicketsPage";
 import { ControlPanelPage } from "./pages/ControlPanelPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { StaffCheckinPage } from "./pages/StaffCheckinPage";
 
 function RootRedirect() {
   const hasToken = Boolean(getSessionToken());
@@ -20,6 +21,7 @@ export default function App() {
       <Route element={<RequireAuth />}>
         <Route path="/panel" element={<ControlPanelPage />} />
         <Route path="/panel/tickets" element={<AttendeeTicketsPage />} />
+        <Route path="/panel/events/:eventId/checkin" element={<StaffCheckinPage />} />
         <Route path="/panel/events/:eventId/dashboard" element={<DashboardPage />} />
       </Route>
 

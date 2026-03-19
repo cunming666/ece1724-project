@@ -528,7 +528,7 @@ export function ControlPanelPage() {
               <Card
                 className="stagger-enter stagger-3"
                 title="My Event Studio"
-                subtitle="Review your draft events, publish them, or jump into the live dashboard."
+                subtitle="Review your draft events, publish them, launch live dashboards, or open the check-in workstation."
                 headerRight={<Pill tone="brand">Publish in UI</Pill>}
               >
                 {myEventsQuery.isLoading ? (
@@ -602,6 +602,12 @@ export function ControlPanelPage() {
                                 className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white/70 px-4 text-sm font-semibold text-slate-800 transition hover:bg-white"
                               >
                                 Open Dashboard
+                              </Link>
+                              <Link
+                                to={`/panel/events/${event.id}/checkin`}
+                                className="inline-flex h-10 items-center justify-center rounded-xl bg-brand-700 px-4 text-sm font-semibold text-white transition hover:bg-brand-800"
+                              >
+                                Open Check-in
                               </Link>
                             </div>
                           </article>
@@ -867,19 +873,22 @@ export function ControlPanelPage() {
               <Card
                 className="stagger-enter stagger-2"
                 title="Staff Operations"
-                subtitle="Staff users can monitor published events and open dashboards they are assigned to."
+                subtitle="Staff users can launch the live check-in workstation or open dashboards for events they support."
                 headerRight={<Pill tone="slate">Staff</Pill>}
               >
                 <p className="text-sm text-slate-700">
-                  Staff accounts cannot create events, but they can open dashboards for assigned events and support check-in operations.
+                  Staff accounts cannot create events, but they can open assigned event dashboards and use the new check-in workstation for QR or manual entry.
                 </p>
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  Use the <span className="font-semibold text-slate-900">Open Check-in</span> button in the published event board to launch the staff workstation for a live event.
+                </div>
               </Card>
 
               <Card className="stagger-enter stagger-3" title="Project Workflow" subtitle="Recommended staff flow for your team demo.">
                 <ol className="space-y-2 text-sm text-slate-700">
                   <li>1. Sign in as staff.</li>
                   <li>2. Open the dashboard for an assigned event.</li>
-                  <li>3. Perform manual or QR check-ins using the API or future staff page.</li>
+                  <li>3. Open the Check-in page for the target event and scan attendee QR codes or type ticket IDs manually.</li>
                   <li>4. Use the dashboard refresh button to confirm live attendance changes.</li>
                 </ol>
               </Card>
@@ -973,12 +982,20 @@ export function ControlPanelPage() {
                     ) : null}
 
                     {(currentUser?.role === "ORGANIZER" || currentUser?.role === "STAFF") && (
-                      <Link
-                        className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
-                        to={`/panel/events/${event.id}/dashboard`}
-                      >
-                        Open Dashboard
-                      </Link>
+                      <>
+                        <Link
+                          className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
+                          to={`/panel/events/${event.id}/dashboard`}
+                        >
+                          Open Dashboard
+                        </Link>
+                        <Link
+                          className="inline-flex h-10 items-center justify-center rounded-xl bg-brand-700 px-4 text-sm font-semibold text-white transition hover:bg-brand-800"
+                          to={`/panel/events/${event.id}/checkin`}
+                        >
+                          Open Check-in
+                        </Link>
+                      </>
                     )}
 
                     {currentUser?.role === "ATTENDEE" ? (
