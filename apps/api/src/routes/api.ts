@@ -3,6 +3,7 @@ import { Router } from "express";
 import type { Server } from "socket.io";
 import { z } from "zod";
 import QRCode from "qrcode";
+import bcrypt from "bcryptjs";
 import { requireAuth } from "../lib/auth.js";
 import { hashToken, randomToken } from "../lib/security.js";
 import { prisma } from "../lib/prisma.js";
@@ -296,7 +297,8 @@ export function createApiRouter(io: Server) {
       await prisma.event.deleteMany();
       await prisma.user.deleteMany();
 
-      const demoPassword = "pass1234";
+      const demoPlainPassword = "pass1234";
+      const demoPassword = await bcrypt.hash(demoPlainPassword, 10);
 
       const organizer = await prisma.user.create({
         data: {
@@ -447,31 +449,31 @@ export function createApiRouter(io: Server) {
           {
             role: "ORGANIZER",
             email: organizer.email,
-            password: demoPassword,
+            password: demoPlainPassword,
             token: organizerToken,
           },
           {
             role: "STAFF",
             email: staff.email,
-            password: demoPassword,
+            password: demoPlainPassword,
             token: staffToken,
           },
           {
             role: "ATTENDEE",
             email: attendeeA.email,
-            password: demoPassword,
+            password: demoPlainPassword,
             token: attendeeAToken,
           },
           {
             role: "ATTENDEE",
             email: attendeeB.email,
-            password: demoPassword,
+            password: demoPlainPassword,
             token: attendeeBToken,
           },
           {
             role: "ATTENDEE",
             email: attendeeC.email,
-            password: demoPassword,
+            password: demoPlainPassword,
             token: attendeeCToken,
           },
         ],
@@ -1320,7 +1322,7 @@ export function createApiRouter(io: Server) {
         })) + 1;
 
       const seenEmailsInCsv = new Set<string>();
-      const importedUserDefaultPassword = "pass1234";
+      const importedUserDefaultPassword = await bcrypt.hash("pass1234", 10);
 
       for (const row of parsedCsv.rows) {
         if (seenEmailsInCsv.has(row.email)) {
