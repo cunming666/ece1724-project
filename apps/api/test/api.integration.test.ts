@@ -336,12 +336,32 @@ describe("Check-in idempotency and RBAC", () => {
       .expect(201);
     expect(second.body.isDuplicate).toBe(true);
 
+    const ticketQr = await api.get(`/api/tickets/${ticketId}/qr`).set("Authorization", `Bearer ${attendee.token}`).expect(200);
+    const qrContent =
+      typeof ticketQr.text === "string" && ticketQr.text.length > 0
+        ? ticketQr.text
+        : Buffer.isBuffer(ticketQr.body)
+          ? ticketQr.body.toString("utf8")
+          : String(ticketQr.body ?? "");
+    expect(qrContent).toContain("<svg");
+
+    const rawTicket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    expect(rawTicket?.qrPayload).toBeTruthy();
+
+    const qrCheckin = await api
+      .post("/api/checkins/scan")
+      .set("Authorization", `Bearer ${staff.token}`)
+      .send({ qrPayload: rawTicket?.qrPayload })
+      .expect(201);
+    expect(qrCheckin.body.isDuplicate).toBe(true);
+    expect(qrCheckin.body.method).toBe("QR");
+
     await api.post("/api/checkins/manual").set("Authorization", `Bearer ${attendee.token}`).send({ ticketId }).expect(403);
 
     const dashboard = await api.get(`/api/events/${eventId}/dashboard`).set("Authorization", `Bearer ${staff.token}`).expect(200);
 
     expect(dashboard.body.checkedIn).toBe(1);
-    expect(dashboard.body.recentCheckins).toHaveLength(2);
+    expect(dashboard.body.recentCheckins).toHaveLength(3);
   });
 });
 

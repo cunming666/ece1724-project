@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 import { randomToken } from "../lib/security.js";
 import { requireAuth, resolveSession } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
@@ -40,7 +41,7 @@ export function createAuthRouter() {
         data: {
           email: parsed.email,
           name: parsed.name,
-          passwordHash: parsed.password,
+          passwordHash: await bcrypt.hash(parsed.password, 10),
           role: parsed.role,
         },
       });
@@ -64,7 +65,7 @@ export function createAuthRouter() {
         where: { email: parsed.email },
       });
 
-      if (!user || user.passwordHash !== parsed.password) {
+      if (!user || !(await bcrypt.compare(parsed.password, user.passwordHash))) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
@@ -80,7 +81,7 @@ export function createAuthRouter() {
       });
 
       res.cookie("session_token", token, {
-        httpOnly: false,
+        httpOnly: true,
         sameSite: "lax",
         secure: false,
         expires: expiresAt,
@@ -100,7 +101,7 @@ export function createAuthRouter() {
     }
   });
 
-    router.post("/change-password", requireAuth(), async (req, res, next) => {
+  router.post("/change-password", requireAuth(), async (req, res, next) => {
     try {
       const parsed = changePasswordSchema.parse(req.body);
 
@@ -114,14 +115,14 @@ export function createAuthRouter() {
         return res.status(404).json({ error: "User not found" });
       }
 
-      if (user.passwordHash !== parsed.currentPassword) {
+      if (!(await bcrypt.compare(parsed.currentPassword, user.passwordHash))) {
         return res.status(401).json({ error: "Current password is incorrect" });
       }
 
       await prisma.user.update({
         where: { id: userId },
         data: {
-          passwordHash: parsed.newPassword,
+          passwordHash: await bcrypt.hash(parsed.newPassword, 10),
         },
       });
 
