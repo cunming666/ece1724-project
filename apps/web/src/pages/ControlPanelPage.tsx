@@ -66,7 +66,11 @@ type CsvImportResponse = {
   summary: CsvImportSummary;
   issues: CsvImportIssue[];
 };
-
+type WeatherResponse = {
+  city: string;
+  temperature: number;
+  weather: string;
+};
 type PresignUploadResponse = {
   file: {
     id: string;
@@ -137,6 +141,7 @@ export function ControlPanelPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [changePasswordMessage, setChangePasswordMessage] = useState("");
+const [showWeatherCard, setShowWeatherCard] = useState(true);
   const eventsQuery = useQuery({
     queryKey: ["events"],
     queryFn: () => apiFetch<{ items: EventItem[] }>("/api/events"),
@@ -178,7 +183,12 @@ export function ControlPanelPage() {
       return myPublishedEvents[0]?.id ?? "";
     });
   }, [currentUser?.role, myPublishedEvents]);
-
+  const weatherQuery = useQuery({
+    queryKey: ["weather-toronto"],
+    queryFn: () => apiFetch<WeatherResponse>("/api/weather?city=Toronto"),
+    staleTime: 1000 * 60 * 10,
+    refetchOnWindowFocus: false,
+  });
   const staffAssignmentsQuery = useQuery({
     queryKey: ["event-staff", selectedEventId],
     enabled: Boolean(selectedEventId && currentUser?.role === "ORGANIZER"),
@@ -1017,6 +1027,46 @@ export function ControlPanelPage() {
           </div>
         </Card>
       </section>
+      {showWeatherCard ? (
+        <div className="fixed bottom-5 right-5 z-50 w-[280px] animate-[fadeIn_0.4s_ease-out] rounded-2xl border border-sky-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-600">Live Weather</p>
+              <h3 className="mt-1 text-lg font-bold text-slate-900">Toronto</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowWeatherCard(false)}
+              className="rounded-full px-2 py-1 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="mt-3">
+            {weatherQuery.isLoading ? (
+              <p className="text-sm text-slate-600">Loading weather...</p>
+            ) : weatherQuery.isError ? (
+              <p className="text-sm text-rose-600">Unable to load weather.</p>
+            ) : weatherQuery.data ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="text-3xl">🌤️</div>
+                  <div>
+                    <p className="text-2xl font-bold text-slate-900">{weatherQuery.data.temperature}°C</p>
+                    <p className="text-sm text-slate-600">{weatherQuery.data.weather}</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">
+                  Real-time weather from external API integration.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-slate-600">No weather data available.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

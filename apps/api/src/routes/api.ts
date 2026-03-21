@@ -1437,6 +1437,37 @@ export function createApiRouter(io: Server) {
       next(error);
     }
   });
+// =======================
+// Weather API (Advanced Feature #5)
+// =======================
+router.get("/weather", async (req, res, next) => {
+  try {
+    const city = String(req.query.city || "Toronto");
 
+    const apiKey = process.env.OPENWEATHER_API_KEY;
+
+    if (!apiKey) {
+      return res.status(500).json({ error: "Weather API key not configured" });
+    }
+
+    const response = await fetch(
+      `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=metric&appid=${apiKey}`
+    );
+
+    if (!response.ok) {
+      return res.status(400).json({ error: "Failed to fetch weather data" });
+    }
+
+    const data = await response.json();
+
+    return res.json({
+      city: data.name,
+      temperature: data.main.temp,
+      weather: data.weather[0].main,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
   return router;
 }
