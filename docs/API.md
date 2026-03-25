@@ -1,4 +1,4 @@
-﻿# API Notes (Minimal)
+# API Notes (Minimal)
 
 ## Health
 - `GET /health`
@@ -15,6 +15,7 @@
 - `POST /api/events`
 - `GET /api/events/:eventId`
 - `PATCH /api/events/:eventId`
+- `PATCH /api/events/:eventId` supports `coverFileId` for event cover binding.
 - `POST /api/events/:eventId/publish`
 - `POST /api/events/:eventId/register`
 - `DELETE /api/events/:eventId/register`
@@ -26,7 +27,8 @@
 - `POST /api/checkins/scan`
 - `POST /api/checkins/manual`
 
-## Files (stub)
+## Files and CSV Import
 - `POST /api/files/presign-upload`
 - `POST /api/events/:eventId/import-attendees-csv`
+- `GET /api/events/:eventId/import-jobs`
 - `GET /api/files/:fileId/download`

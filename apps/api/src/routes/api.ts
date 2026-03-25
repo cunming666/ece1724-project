@@ -1,4 +1,4 @@
-import type { CheckinLog, Prisma, Registration, StaffAssignment, Ticket, User } from "@prisma/client";
+import type { CheckinLog, FileObject, Prisma, Registration, StaffAssignment, Ticket, User } from "@prisma/client";
 import type { CheckinMethod, EventStatus, RegistrationStatus, UserRole } from "../types.js";
 import { Router } from "express";
 import type { Server } from "socket.io";
@@ -21,7 +21,9 @@ const createEventSchema = z.object({
   waitlistEnabled: z.boolean().optional(),
 });
 
-const updateEventSchema = createEventSchema.partial();
+const updateEventSchema = createEventSchema.partial().extend({
+  coverFileId: z.string().min(1).nullable().optional(),
+});
 
 const importAttendeesCsvSchema = z
   .object({
@@ -33,6 +35,14 @@ const importAttendeesCsvSchema = z
   });
 
 const csvEmailSchema = z.string().email();
+const importSummarySchema = z.object({
+  totalRows: z.number().int().nonnegative(),
+  importedRows: z.number().int().nonnegative(),
+  invalidRows: z.number().int().nonnegative(),
+  duplicateRows: z.number().int().nonnegative(),
+  confirmedRows: z.number().int().nonnegative(),
+  waitlistedRows: z.number().int().nonnegative(),
+});
 
 type CsvParsedRow = {
   rowNumber: number;
@@ -44,6 +54,22 @@ type CsvIssue = {
   rowNumber: number;
   reason: string;
 };
+
+type ImportSummary = z.infer<typeof importSummarySchema>;
+
+function parseImportSummary(summary: string | null): ImportSummary | null {
+  if (!summary) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(summary) as unknown;
+    const validated = importSummarySchema.safeParse(parsed);
+    return validated.success ? validated.data : null;
+  } catch {
+    return null;
+  }
+}
 
 function parseAttendeeCsv(csvText: string): { rows: CsvParsedRow[]; issues: CsvIssue[] } {
   const normalizedText = csvText.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -222,6 +248,76 @@ async function getTicketCheckinSummary(ticketId: string) {
     checkedInAt: validCheckin?.checkedInAt ?? null,
     duplicateCount,
   };
+}
+
+async function canDownloadFile(auth: { id: string; role: UserRole }, file: FileObject): Promise<boolean> {
+  if (file.ownerId === auth.id) {
+    return true;
+  }
+
+  if (file.kind === "event-cover") {
+    const event = await prisma.event.findFirst({
+      where: { coverFileId: file.id },
+    });
+
+    if (!event) {
+      return false;
+    }
+
+    if (event.status === "PUBLISHED") {
+      return true;
+    }
+
+    if (auth.role === "ORGANIZER") {
+      return event.organizerId === auth.id;
+    }
+
+    if (auth.role === "STAFF") {
+      const assignment = await prisma.staffAssignment.findUnique({
+        where: {
+          eventId_userId: {
+            eventId: event.id,
+            userId: auth.id,
+          },
+        },
+      });
+      return Boolean(assignment);
+    }
+
+    return false;
+  }
+
+  if (file.kind === "attendee-import") {
+    const job = await prisma.importJob.findFirst({
+      where: { fileId: file.id },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!job) {
+      return false;
+    }
+
+    if (auth.role === "ORGANIZER") {
+      const event = await prisma.event.findUnique({ where: { id: job.eventId } });
+      return event?.organizerId === auth.id;
+    }
+
+    if (auth.role === "STAFF") {
+      const assignment = await prisma.staffAssignment.findUnique({
+        where: {
+          eventId_userId: {
+            eventId: job.eventId,
+            userId: auth.id,
+          },
+        },
+      });
+      return Boolean(assignment);
+    }
+
+    return false;
+  }
+
+  return false;
 }
 
 async function createTicket(eventId: string, attendeeId: string) {
@@ -618,6 +714,26 @@ export function createApiRouter(io: Server) {
 
       const parsed = updateEventSchema.parse(req.body);
 
+      let normalizedCoverFileId: string | null | undefined = undefined;
+      if (parsed.coverFileId !== undefined) {
+        if (parsed.coverFileId === null) {
+          normalizedCoverFileId = null;
+        } else {
+          const file = await prisma.fileObject.findUnique({ where: { id: parsed.coverFileId } });
+          if (!file) {
+            return res.status(404).json({ error: "Cover file not found" });
+          }
+          if (file.ownerId !== res.locals.auth.user.id) {
+            return res.status(403).json({ error: "You can only attach files you uploaded" });
+          }
+          if (!file.mimeType.toLowerCase().startsWith("image/")) {
+            return res.status(400).json({ error: "Cover file must be an image" });
+          }
+          normalizedCoverFileId = file.id;
+        }
+      }
+
+
       const updated = await prisma.event.update({
         where: { id: req.params.eventId },
         data: {
@@ -627,6 +743,7 @@ export function createApiRouter(io: Server) {
           ...(parsed.startTime !== undefined ? { startTime: parsed.startTime } : {}),
           ...(parsed.capacity !== undefined ? { capacity: parsed.capacity } : {}),
           ...(parsed.waitlistEnabled !== undefined ? { waitlistEnabled: parsed.waitlistEnabled } : {}),
+          ...(normalizedCoverFileId !== undefined ? { coverFileId: normalizedCoverFileId } : {}),
         },
       });
 
@@ -1257,6 +1374,13 @@ export function createApiRouter(io: Server) {
         return res.status(404).json({ error: "File not found" });
       }
 
+      const authUser = res.locals.auth.user as { id: string; role: UserRole };
+      const allowed = await canDownloadFile({ id: authUser.id, role: authUser.role }, file);
+      if (!allowed) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+
       const spacesClient = getSpacesClient();
       const getCommand = new GetObjectCommand({
         Bucket: file.bucket,
@@ -1443,6 +1567,35 @@ export function createApiRouter(io: Server) {
       next(error);
     }
   });
+  router.get("/events/:eventId/import-jobs", requireAuth(["ORGANIZER"]), async (req, res, next) => {
+    try {
+      const access = await assertEventAccess("ORGANIZER", res.locals.auth.user.id, req.params.eventId);
+      if (!access.ok) {
+        return res.status(access.code).json({ error: access.error });
+      }
+
+      const jobs = await prisma.importJob.findMany({
+        where: { eventId: req.params.eventId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 20,
+      });
+
+      const items = jobs.map((job) => ({
+        id: job.id,
+        eventId: job.eventId,
+        fileId: job.fileId,
+        status: job.status,
+        summary: parseImportSummary(job.summary),
+        createdAt: job.createdAt,
+        finishedAt: job.finishedAt,
+      }));
+
+      res.json({ items });
+    } catch (error) {
+      next(error);
+    }
+  });
+
 // =======================
 // Weather API (Advanced Feature #5)
 // =======================

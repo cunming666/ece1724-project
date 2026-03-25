@@ -15,9 +15,14 @@
     "test": "npm run test --ws --if-present",
     "demo:bootstrap": "node scripts/demo-bootstrap.mjs",
     "db:init": "node scripts/init-sqlite.mjs",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "npm run prisma:generate:sqlite",
     "prisma:migrate": "prisma migrate dev --name init",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "prisma:sync:postgres": "node scripts/sync-prisma-postgres-schema.mjs",
+    "prisma:generate:sqlite": "prisma generate --schema prisma/schema.prisma",
+    "prisma:generate:postgres": "npm run prisma:sync:postgres && prisma generate --schema prisma/schema.postgres.prisma",
+    "db:push:postgres": "npm run prisma:sync:postgres && prisma db push --schema prisma/schema.postgres.prisma",
+    "verify:postgres": "node scripts/verify-postgres.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

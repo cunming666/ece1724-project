@@ -12,6 +12,7 @@ type EventItem = {
   startTime: string;
   capacity: number;
   status: "DRAFT" | "PUBLISHED" | "CLOSED";
+  coverFileId: string | null;
 };
 
 type TicketWalletItem = {
@@ -66,11 +67,27 @@ type CsvImportResponse = {
   summary: CsvImportSummary;
   issues: CsvImportIssue[];
 };
+type CsvImportHistoryItem = {
+  id: string;
+  eventId: string;
+  fileId: string;
+  status: string;
+  createdAt: string;
+  finishedAt: string | null;
+  summary: CsvImportSummary | null;
+};
 type WeatherResponse = {
   city: string;
   temperature: number;
   weather: string;
 };
+type FileDownloadResponse = {
+  file: {
+    id: string;
+  };
+  downloadUrl: string;
+};
+
 type PresignUploadResponse = {
   file: {
     id: string;
@@ -137,6 +154,8 @@ export function ControlPanelPage() {
   const [staffEmail, setStaffEmail] = useState("");
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvImportResult, setCsvImportResult] = useState<CsvImportResponse | null>(null);
+  const [coverFilesByEvent, setCoverFilesByEvent] = useState<Record<string, File | null>>({});
+  const [coverPreviewUrlsByEvent, setCoverPreviewUrlsByEvent] = useState<Record<string, string>>({});
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -165,6 +184,17 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
   const draftEvents = ownEvents.filter((event) => event.status === "DRAFT");
   const myPublishedEvents = ownEvents.filter((event) => event.status === "PUBLISHED");
 
+  const eventsWithCover = useMemo(() => {
+    const merged = new Map<string, EventItem>();
+    for (const event of ownEvents) {
+      merged.set(event.id, event);
+    }
+    for (const event of publishedEvents) {
+      merged.set(event.id, event);
+    }
+    return Array.from(merged.values()).filter((event) => Boolean(event.coverFileId));
+  }, [ownEvents, publishedEvents]);
+
   useEffect(() => {
     if (currentUser?.role !== "ORGANIZER") {
       setSelectedEventId("");
@@ -183,6 +213,39 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
       return myPublishedEvents[0]?.id ?? "";
     });
   }, [currentUser?.role, myPublishedEvents]);
+
+  useEffect(() => {
+    const missing = eventsWithCover.filter((event) => event.coverFileId && !coverPreviewUrlsByEvent[event.id]);
+    if (!missing.length) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      for (const event of missing) {
+        if (!event.coverFileId) {
+          continue;
+        }
+
+        try {
+          const payload = await apiFetch<FileDownloadResponse>(`/api/files/${event.coverFileId}/download`);
+          if (cancelled) {
+            return;
+          }
+          setCoverPreviewUrlsByEvent((prev) => ({
+            ...prev,
+            [event.id]: prev[event.id] ?? payload.downloadUrl,
+          }));
+        } catch {
+          // Ignore per-event cover loading failures to keep the panel responsive.
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [coverPreviewUrlsByEvent, eventsWithCover]);
   const weatherQuery = useQuery({
     queryKey: ["weather-toronto"],
     queryFn: () => apiFetch<WeatherResponse>("/api/weather?city=Toronto"),
@@ -193,6 +256,12 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
     queryKey: ["event-staff", selectedEventId],
     enabled: Boolean(selectedEventId && currentUser?.role === "ORGANIZER"),
     queryFn: () => apiFetch<{ items: StaffAssignmentItem[] }>(`/api/events/${selectedEventId}/staff`),
+  });
+
+  const importHistoryQuery = useQuery({
+    queryKey: ["event-import-jobs", selectedEventId],
+    enabled: Boolean(selectedEventId && currentUser?.role === "ORGANIZER"),
+    queryFn: () => apiFetch<{ items: CsvImportHistoryItem[] }>(`/api/events/${selectedEventId}/import-jobs`),
   });
 
   const stats = useMemo(() => {
@@ -369,6 +438,75 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
       setCsvFile(null);
       queryClient.invalidateQueries({ queryKey: ["events"] });
       queryClient.invalidateQueries({ queryKey: ["my-events"] });
+      queryClient.invalidateQueries({ queryKey: ["event-import-jobs", selectedEventId] });
+    },
+    onError: (err: Error) => {
+      setNotice({ tone: "error", text: err.message });
+    },
+  });
+
+  const uploadEventCover = useMutation({
+    mutationFn: async (eventId: string) => {
+      const file = coverFilesByEvent[eventId];
+      if (!file) {
+        throw new Error("Please choose an image file first.");
+      }
+      if (!file.type.toLowerCase().startsWith("image/")) {
+        throw new Error("Cover file must be an image.");
+      }
+
+      const presign = await apiFetch<PresignUploadResponse>("/api/files/presign-upload", {
+        method: "POST",
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type || "image/jpeg",
+          size: file.size,
+          kind: "event-cover",
+        }),
+      });
+
+      const uploadResponse = await fetch(presign.uploadUrl, {
+        method: presign.method,
+        headers: {
+          "Content-Type": file.type || "image/jpeg",
+        },
+        body: file,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error("Failed to upload cover image to cloud storage.");
+      }
+
+      const updatedEvent = await apiFetch<EventItem>(`/api/events/${eventId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          coverFileId: presign.file.id,
+        }),
+      });
+
+      const download = await apiFetch<FileDownloadResponse>(`/api/files/${presign.file.id}/download`);
+
+      return {
+        eventId,
+        eventTitle: updatedEvent.title,
+        coverUrl: download.downloadUrl,
+      };
+    },
+    onSuccess: ({ eventId, eventTitle, coverUrl }) => {
+      setCoverFilesByEvent((prev) => ({
+        ...prev,
+        [eventId]: null,
+      }));
+      setCoverPreviewUrlsByEvent((prev) => ({
+        ...prev,
+        [eventId]: coverUrl,
+      }));
+      setNotice({
+        tone: "success",
+        text: `Cover image updated for event "${eventTitle}".`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["my-events"] });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
     },
     onError: (err: Error) => {
       setNotice({ tone: "error", text: err.message });
@@ -569,6 +707,39 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
                               </div>
                               <Pill tone="warm">{event.status}</Pill>
                             </div>
+                            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                              <FieldLabel>Event Cover</FieldLabel>
+                              <Input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] ?? null;
+                                  setCoverFilesByEvent((prev) => ({
+                                    ...prev,
+                                    [event.id]: file,
+                                  }));
+                                }}
+                              />
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => uploadEventCover.mutate(event.id)}
+                                  disabled={!coverFilesByEvent[event.id] || (uploadEventCover.isPending && uploadEventCover.variables === event.id)}
+                                >
+                                  {uploadEventCover.isPending && uploadEventCover.variables === event.id ? "Uploading..." : "Upload Cover"}
+                                </Button>
+                                <span className="text-xs text-slate-600">
+                                  {event.coverFileId ? "Cover attached" : "No cover uploaded yet"}
+                                </span>
+                              </div>
+                              {coverPreviewUrlsByEvent[event.id] ? (
+                                <img
+                                  src={coverPreviewUrlsByEvent[event.id]}
+                                  alt={`${event.title} cover`}
+                                  className="mt-3 h-28 w-full rounded-xl object-cover"
+                                />
+                              ) : null}
+                            </div>
                             <div className="mt-4 flex flex-wrap gap-2">
                               <Button
                                 onClick={() => publishEvent.mutate(event.id)}
@@ -605,6 +776,39 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
                                 </p>
                               </div>
                               <Pill tone="brand">{event.status}</Pill>
+                            </div>
+                            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                              <FieldLabel>Event Cover</FieldLabel>
+                              <Input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] ?? null;
+                                  setCoverFilesByEvent((prev) => ({
+                                    ...prev,
+                                    [event.id]: file,
+                                  }));
+                                }}
+                              />
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => uploadEventCover.mutate(event.id)}
+                                  disabled={!coverFilesByEvent[event.id] || (uploadEventCover.isPending && uploadEventCover.variables === event.id)}
+                                >
+                                  {uploadEventCover.isPending && uploadEventCover.variables === event.id ? "Uploading..." : "Upload Cover"}
+                                </Button>
+                                <span className="text-xs text-slate-600">
+                                  {event.coverFileId ? "Cover attached" : "No cover uploaded yet"}
+                                </span>
+                              </div>
+                              {coverPreviewUrlsByEvent[event.id] ? (
+                                <img
+                                  src={coverPreviewUrlsByEvent[event.id]}
+                                  alt={`${event.title} cover`}
+                                  className="mt-3 h-28 w-full rounded-xl object-cover"
+                                />
+                              ) : null}
                             </div>
                             <div className="mt-4 flex flex-wrap gap-2">
                               <Link
@@ -837,6 +1041,56 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
                     </div>
                   </div>
                 ) : null}
+
+                <div className="mt-5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-slate-800">Recent Import Jobs</p>
+                    <Button
+                      variant="secondary"
+                      onClick={() => importHistoryQuery.refetch()}
+                      disabled={!selectedEventId || importHistoryQuery.isFetching}
+                    >
+                      {importHistoryQuery.isFetching ? "Refreshing..." : "Refresh History"}
+                    </Button>
+                  </div>
+
+                  {!selectedEventId ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+                      Select a published event to view CSV import history.
+                    </div>
+                  ) : importHistoryQuery.isLoading ? (
+                    <div className="rounded-2xl bg-slate-100/80 px-4 py-4 text-sm text-slate-600">Loading import history...</div>
+                  ) : importHistoryQuery.isError ? (
+                    <div className="rounded-2xl bg-rose-50 px-4 py-4 text-sm text-rose-700">Failed to load import history.</div>
+                  ) : importHistoryQuery.data?.items.length ? (
+                    <div className="space-y-3">
+                      {importHistoryQuery.data.items.map((job) => (
+                        <article key={job.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-900">{new Date(job.createdAt).toLocaleString()}</p>
+                            <Pill tone="slate">{job.status}</Pill>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">File: {job.fileId}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Finished: {job.finishedAt ? new Date(job.finishedAt).toLocaleString() : "In progress"}
+                          </p>
+                          {job.summary ? (
+                            <p className="mt-2 text-xs text-slate-700">
+                              Total {job.summary.totalRows} | Imported {job.summary.importedRows} | Invalid {job.summary.invalidRows} |
+                              Duplicates {job.summary.duplicateRows} | Confirmed {job.summary.confirmedRows} | Waitlisted {job.summary.waitlistedRows}
+                            </p>
+                          ) : (
+                            <p className="mt-2 text-xs text-slate-500">Summary unavailable for this job.</p>
+                          )}
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+                      No import jobs yet for this event.
+                    </div>
+                  )}
+                </div>
               </Card>
             </>
           ) : currentUser?.role === "ATTENDEE" ? (
@@ -984,6 +1238,17 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
                     <Pill tone="brand">{event.status}</Pill>
                   </div>
 
+                  {coverPreviewUrlsByEvent[event.id] ? (
+                    <div className="mt-3 overflow-hidden rounded-xl border border-slate-200">
+                      <img
+                        src={coverPreviewUrlsByEvent[event.id]}
+                        alt={`${event.title} cover`}
+                        className="h-36 w-full object-cover"
+                      />
+                    </div>
+                  ) : event.coverFileId ? (
+                    <p className="mt-3 text-xs text-slate-500">Cover image is available for this event.</p>
+                  ) : null}
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     {currentUser?.role === "ATTENDEE" ? (
                       <Button onClick={() => register.mutate(event.id)} disabled={register.isPending}>
@@ -1039,7 +1304,7 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
               onClick={() => setShowWeatherCard(false)}
               className="rounded-full px-2 py-1 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
             >
-              ×
+              x
             </button>
           </div>
 
@@ -1051,9 +1316,9 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
             ) : weatherQuery.data ? (
               <>
                 <div className="flex items-center gap-3">
-                  <div className="text-3xl">🌤️</div>
+                  <div className="text-3xl">Wx</div>
                   <div>
-                    <p className="text-2xl font-bold text-slate-900">{weatherQuery.data.temperature}°C</p>
+                    <p className="text-2xl font-bold text-slate-900">{weatherQuery.data.temperature} C</p>
                     <p className="text-sm text-slate-600">{weatherQuery.data.weather}</p>
                   </div>
                 </div>

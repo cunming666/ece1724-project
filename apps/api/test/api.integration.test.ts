@@ -223,6 +223,87 @@ describe("Organizer and attendee workspace APIs", () => {
     expect(myEvents.body.items.some((item: { id: string; status: string }) => item.id === published.body.id && item.status === "PUBLISHED")).toBe(true);
   });
 
+  test("allows organizer to attach an owned image as event cover", async () => {
+    const organizer = await signUpAndSignIn({
+      email: "org+cover@utoronto.ca",
+      name: "Org Cover",
+      role: "ORGANIZER",
+    });
+    const otherOrganizer = await signUpAndSignIn({
+      email: "org+cover-other@utoronto.ca",
+      name: "Org Cover Other",
+      role: "ORGANIZER",
+    });
+
+    const createdEvent = await api
+      .post("/api/events")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        title: "Cover Event",
+        description: "cover",
+        location: "BA 1130",
+        startTime: new Date(Date.now() + 3600_000).toISOString(),
+        capacity: 10,
+        waitlistEnabled: true,
+      })
+      .expect(201);
+
+    const eventId = createdEvent.body.id as string;
+
+    const ownedImageFile = await prisma.fileObject.create({
+      data: {
+        ownerId: organizer.user.id,
+        bucket: "demo-bucket",
+        objectKey: "covers/owned.png",
+        mimeType: "image/png",
+        size: 100,
+        kind: "event-cover",
+      },
+    });
+
+    const updated = await api
+      .patch(`/api/events/${eventId}`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({ coverFileId: ownedImageFile.id })
+      .expect(200);
+
+    expect(updated.body.coverFileId).toBe(ownedImageFile.id);
+
+    const notOwnedImageFile = await prisma.fileObject.create({
+      data: {
+        ownerId: otherOrganizer.user.id,
+        bucket: "demo-bucket",
+        objectKey: "covers/not-owned.png",
+        mimeType: "image/png",
+        size: 100,
+        kind: "event-cover",
+      },
+    });
+
+    await api
+      .patch(`/api/events/${eventId}`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({ coverFileId: notOwnedImageFile.id })
+      .expect(403);
+
+    const ownedTextFile = await prisma.fileObject.create({
+      data: {
+        ownerId: organizer.user.id,
+        bucket: "demo-bucket",
+        objectKey: "covers/not-image.txt",
+        mimeType: "text/plain",
+        size: 20,
+        kind: "event-cover",
+      },
+    });
+
+    await api
+      .patch(`/api/events/${eventId}`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({ coverFileId: ownedTextFile.id })
+      .expect(400);
+  });
+
   test("returns attendee tickets and qr access via /api/me/tickets", async () => {
     const organizer = await signUpAndSignIn({
       email: "org+tickets@utoronto.ca",
@@ -421,6 +502,17 @@ describe("CSV attendee import", () => {
     expect(response.body.summary.waitlistedRows).toBe(1);
 
     expect(response.body.issues).toHaveLength(3);
+
+    const importHistory = await api
+      .get(`/api/events/${eventId}/import-jobs`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .expect(200);
+
+    expect(importHistory.body.items).toHaveLength(1);
+    expect(importHistory.body.items[0].status).toBe("COMPLETED");
+    expect(importHistory.body.items[0].summary.importedRows).toBe(2);
+
+    await api.get(`/api/events/${eventId}/import-jobs`).set("Authorization", `Bearer ${existingAttendee.token}`).expect(403);
 
     const attendees = await api.get(`/api/events/${eventId}/attendees`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
 

@@ -12,7 +12,7 @@ Campus event check-in platform (Organizer / Staff / Attendee) built with React +
 ## Tech Stack
 - Frontend: React + Vite + TypeScript + Tailwind CSS + React Router + TanStack Query
 - Backend: Express + TypeScript + Socket.IO + Zod
-- Data: Prisma + SQLite for local development, PostgreSQL planned later
+- Data: Prisma + SQLite for local development, PostgreSQL-ready verification/deploy workflow
 - Storage: DigitalOcean Spaces / S3-compatible presigned upload and download
 - Shared package: common types/constants in `packages/shared`
 
@@ -49,8 +49,33 @@ npm run dev
 npm run demo:bootstrap
 ```
 
+
+## PostgreSQL Verification (Neon)
+Use this flow when you need to prove PostgreSQL compatibility without breaking the default SQLite dev setup.
+
+1. Create a temporary PostgreSQL env file (`.env.postgres.example` -> `.env`) or directly set `DATABASE_URL` in `.env` to your Neon/PostgreSQL URL.
+2. Stop any running `npm run dev` process first.
+3. Run:
+```bash
+npm run verify:postgres
+```
+4. After verification, set `DATABASE_URL` back to `file:./dev.db` in `.env`.
+5. If needed, re-initialize local SQLite schema:
+```bash
+npm run db:init
+```
+
+Notes:
+- `verify:postgres` runs PostgreSQL client generation, schema push, and a smoke CRUD check.
+- `verify:postgres` always tries to restore the Prisma client back to SQLite at the end.
+- PostgreSQL schema file is generated automatically from `prisma/schema.prisma`.
+
 ## Environment Variables
 Use the project-root `.env` file. Keep real credentials only in `.env` and never commit them.
+
+Examples:
+- `.env.example` for SQLite local development
+- `.env.postgres.example` for PostgreSQL verification/deploy
 
 Required for full feature set:
 - `DATABASE_URL`
