@@ -1,3 +1,4 @@
+import type { CheckinLog, Prisma, Registration, StaffAssignment, Ticket, User } from "@prisma/client";
 import type { CheckinMethod, EventStatus, RegistrationStatus, UserRole } from "../types.js";
 import { Router } from "express";
 import type { Server } from "socket.io";
@@ -9,7 +10,7 @@ import { hashToken, randomToken } from "../lib/security.js";
 import { prisma } from "../lib/prisma.js";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { spacesClient, spacesConfig } from "../lib/spaces.js";
+import { getSpacesClient, getSpacesConfig } from "../lib/spaces.js";
 
 const createEventSchema = z.object({
   title: z.string().min(1),
@@ -130,6 +131,7 @@ async function readCsvTextFromSpaces(fileId: string): Promise<string> {
     Key: file.objectKey,
   });
 
+  const spacesClient = getSpacesClient();
   const response = await spacesClient.send(getCommand);
   const body = response.Body;
 
@@ -529,13 +531,14 @@ export function createApiRouter(io: Server) {
         orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
       });
 
-      const registrations = await prisma.registration.findMany({
+      const registrations: Registration[] = await prisma.registration.findMany({
         where: { attendeeId },
       });
-      const registrationMap = new Map(registrations.map((item) => [item.eventId, item]));
+      const registrationMap = new Map<string, Registration>(registrations.map((item) => [item.eventId, item]));
 
       const items = await Promise.all(
-        tickets.map(async (ticket) => ({
+        (tickets as Prisma.TicketGetPayload<{ include: { event: true } }>[])
+          .map(async (ticket) => ({
           id: ticket.id,
           issuedAt: ticket.issuedAt,
           revokedAt: ticket.revokedAt,
@@ -799,13 +802,13 @@ export function createApiRouter(io: Server) {
         return res.status(access.code).json({ error: access.error });
       }
 
-      const assignments = await prisma.staffAssignment.findMany({
+      const assignments: StaffAssignment[] = await prisma.staffAssignment.findMany({
         where: { eventId: req.params.eventId },
         orderBy: { id: "asc" },
       });
 
       const userIds = assignments.map((item) => item.userId);
-      const users = userIds.length
+      const users: User[] = userIds.length
         ? await prisma.user.findMany({
             where: {
               id: { in: userIds },
@@ -813,7 +816,7 @@ export function createApiRouter(io: Server) {
           })
         : [];
 
-      const userMap = new Map(users.map((user) => [user.id, user]));
+      const userMap = new Map<string, User>(users.map((user) => [user.id, user]));
 
       const items = assignments.map((assignment) => ({
         ...assignment,
@@ -923,13 +926,13 @@ export function createApiRouter(io: Server) {
         return res.status(access.code).json({ error: access.error });
       }
 
-      const registrations = await prisma.registration.findMany({
+      const registrations: Registration[] = await prisma.registration.findMany({
         where: { eventId: req.params.eventId },
         orderBy: { registeredAt: "asc" },
       });
 
       const userIds = registrations.map((item) => item.attendeeId);
-      const users = userIds.length
+      const users: User[] = userIds.length
         ? await prisma.user.findMany({
             where: {
               id: { in: userIds },
@@ -937,7 +940,7 @@ export function createApiRouter(io: Server) {
           })
         : [];
 
-      const userMap = new Map(users.map((user) => [user.id, user]));
+      const userMap = new Map<string, User>(users.map((user) => [user.id, user]));
 
       const attendees = registrations.map((registration) => ({
         ...registration,
@@ -959,14 +962,14 @@ export function createApiRouter(io: Server) {
 
       const stats = await getAttendance(req.params.eventId);
 
-      const checkins = await prisma.checkinLog.findMany({
+      const checkins: CheckinLog[] = await prisma.checkinLog.findMany({
         where: { eventId: req.params.eventId },
         orderBy: { checkedInAt: "desc" },
         take: 10,
       });
 
       const ticketIds = checkins.map((item) => item.ticketId);
-      const tickets = ticketIds.length
+      const tickets: Ticket[] = ticketIds.length
         ? await prisma.ticket.findMany({
             where: {
               id: { in: ticketIds },
@@ -975,7 +978,7 @@ export function createApiRouter(io: Server) {
         : [];
 
       const attendeeIds = tickets.map((item) => item.attendeeId);
-      const attendees = attendeeIds.length
+      const attendees: User[] = attendeeIds.length
         ? await prisma.user.findMany({
             where: {
               id: { in: attendeeIds },
@@ -983,16 +986,16 @@ export function createApiRouter(io: Server) {
           })
         : [];
 
-      const ticketMap = new Map(tickets.map((ticket) => [ticket.id, ticket]));
-      const attendeeMap = new Map(attendees.map((attendee) => [attendee.id, attendee]));
+      const ticketMap = new Map<string, Ticket>(tickets.map((ticket) => [ticket.id, ticket]));
+      const attendeeMap = new Map<string, User>(attendees.map((attendee) => [attendee.id, attendee]));
 
-      const registrations = await prisma.registration.findMany({
+      const registrations: Registration[] = await prisma.registration.findMany({
         where: { eventId: req.params.eventId },
         orderBy: [{ status: "asc" }, { registeredAt: "asc" }],
       });
 
       const registrationAttendeeIds = registrations.map((item) => item.attendeeId);
-      const registrationUsers = registrationAttendeeIds.length
+      const registrationUsers: User[] = registrationAttendeeIds.length
         ? await prisma.user.findMany({
             where: {
               id: { in: registrationAttendeeIds },
@@ -1000,7 +1003,7 @@ export function createApiRouter(io: Server) {
           })
         : [];
 
-      const registrationUserMap = new Map(registrationUsers.map((user) => [user.id, user]));
+      const registrationUserMap = new Map<string, User>(registrationUsers.map((user) => [user.id, user]));
 
       const confirmedAttendees = registrations
         .filter((item) => item.status === "CONFIRMED")
@@ -1208,6 +1211,8 @@ export function createApiRouter(io: Server) {
         })
         .parse(req.body);
 
+      const spacesConfig = getSpacesConfig();
+      const spacesClient = getSpacesClient();
       const bucket = spacesConfig.bucket;
       const objectKey = `${Date.now()}-${parsed.fileName}`;
 
@@ -1252,6 +1257,7 @@ export function createApiRouter(io: Server) {
         return res.status(404).json({ error: "File not found" });
       }
 
+      const spacesClient = getSpacesClient();
       const getCommand = new GetObjectCommand({
         Bucket: file.bucket,
         Key: file.objectKey,

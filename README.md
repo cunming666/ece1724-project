@@ -2,110 +2,124 @@
 
 Campus event check-in platform (Organizer / Staff / Attendee) built with React + Express + TypeScript.
 
-## Current Status (as of 2026-03-21)
+## Current Status (as of 2026-03-25)
 - The project is runnable end-to-end as an MVP.
 - Authentication, event registration, waitlist promotion, check-in APIs, and real-time dashboard are available.
 - Demo bootstrap accounts and data are available for direct presentation use.
 - Core requirements are mostly complete.
-- External API integration (OpenWeather) added with a floating weather card.
+- External API integration (OpenWeather) is available through the organizer control panel.
 
 ## Tech Stack
 - Frontend: React + Vite + TypeScript + Tailwind CSS + React Router + TanStack Query
 - Backend: Express + TypeScript + Socket.IO + Zod
-- Data: Prisma schema prepared (SQLite now, planned PostgreSQL migration)
-- Shared package: common types/constants in packages/shared
+- Data: Prisma + SQLite for local development, PostgreSQL planned later
+- Storage: DigitalOcean Spaces / S3-compatible presigned upload and download
+- Shared package: common types/constants in `packages/shared`
 
 ## Repository Structure
-apps/web         # React frontend  
-apps/api         # Express backend  
-packages/shared  # shared types/constants  
-prisma           # schema and migrations  
-docs             # API notes, test cases, demo playbook  
-scripts          # helper scripts (demo bootstrap)  
+```text
+apps/web         # React frontend
+apps/api         # Express backend
+packages/shared  # shared types/constants
+prisma           # schema and migrations
+docs             # API notes, test cases, demo playbook
+scripts          # helper scripts (demo bootstrap, local DB init)
+```
 
 ## Quick Start
-1. Install dependencies  
-npm install  
-
-2. Create environment file  
-copy .env.example .env  
-
-3. Run frontend + backend  
-npm run dev  
-
-4. Seed demo data  
-npm run demo:bootstrap  
+1. Install dependencies
+```bash
+npm install
+```
+2. Create local environment file in the project root
+```bash
+cp .env.example .env
+# On Windows PowerShell you can also use: Copy-Item .env.example .env
+```
+3. Initialize the local SQLite schema
+```bash
+npm run db:init
+```
+4. Run frontend + backend
+```bash
+npm run dev
+```
+5. Seed demo data
+```bash
+npm run demo:bootstrap
+```
 
 ## Environment Variables
-Create `.env` in apps/api:
+Use the project-root `.env` file. Keep real credentials only in `.env` and never commit them.
 
-OPENWEATHER_API_KEY=your_api_key_here
+Required for full feature set:
+- `DATABASE_URL`
+- `API_PORT`
+- `WEB_ORIGIN`
+- `VITE_API_URL`
+- `SPACES_REGION`
+- `SPACES_ENDPOINT`
+- `SPACES_BUCKET`
+- `SPACES_ACCESS_KEY`
+- `SPACES_SECRET_KEY`
+- `OPENWEATHER_API_KEY`
 
 ## URLs
-- Web: http://localhost:5173  
-- API health: http://localhost:4000/health  
-- Socket.IO endpoint: http://localhost:4000  
+- Web: `http://localhost:5173`
+- API health: `http://localhost:4000/health`
+- Socket.IO endpoint: `http://localhost:4000`
 
 ## Demo Accounts
-After npm run demo:bootstrap:
-- organizer.demo@utoronto.ca / pass1234  
-- staff.demo@utoronto.ca / pass1234  
-- attendee1.demo@utoronto.ca / pass1234  
-- attendee2.demo@utoronto.ca / pass1234  
-- attendee3.demo@utoronto.ca / pass1234  
+After `npm run demo:bootstrap`:
+- `organizer.demo@utoronto.ca` / `pass1234`
+- `staff.demo@utoronto.ca` / `pass1234`
+- `attendee1.demo@utoronto.ca` / `pass1234`
+- `attendee2.demo@utoronto.ca` / `pass1234`
+- `attendee3.demo@utoronto.ca` / `pass1234`
 
 ## Completed in MVP
-- [x] Auth API: sign-up / sign-in / sign-out / session  
-- [x] RBAC base middleware (ORGANIZER / STAFF / ATTENDEE)  
-- [x] Event API (create, list, publish, details)  
-- [x] Registration + waitlist promotion logic  
-- [x] Ticket generation + QR/manual check-in API  
-- [x] Duplicate check-in detection  
-- [x] Real-time dashboard refresh (Socket.IO)  
-- [x] Login-first frontend flow  
-- [x] Demo bootstrap script  
-- [x] API integration tests  
-- [x] External API integration (OpenWeather weather card with floating UI)  
+- [x] Auth API: sign-up / sign-in / sign-out / session
+- [x] Password hashing and password change API
+- [x] Event API (create, list, update, publish, details)
+- [x] Registration + waitlist promotion logic
+- [x] Ticket generation + QR/manual check-in API
+- [x] Duplicate check-in detection
+- [x] Real-time dashboard refresh (Socket.IO)
+- [x] Organizer staff assignment flow
+- [x] CSV attendee import with summary results
+- [x] Attendee ticket wallet page
+- [x] Staff check-in page (QR + manual fallback)
+- [x] Demo bootstrap script
+- [x] API integration tests
+- [x] External API integration (OpenWeather card)
 
-## Remaining Work (Unified Checklist)
+## Remaining Work
+- [ ] PostgreSQL migration verification
+- [ ] Frontend E2E tests
+- [ ] Improve README to final-report format
+- [ ] Add `ai-session.md`
+- [ ] Add demo video link
 
-### P0 (Core System)
-- [x] Replace in-memory store with Prisma database persistence  
-- [x] Add Prisma migrations and seed flow  
-- [x] Implement cloud storage integration (S3/Spaces)  
-- [x] Implement CSV attendee import parsing and summary  
-- [x] Staff assignment management flow (API + UI)  
-
-### P1 (Frontend + UX)
-- [x] Attendee ticket page (QR display)  
-- [x] Staff check-in page (scan/manual)  
-- [x] Organizer publish action in UI  
-- [x] Fix text encoding issues  
-- [x] RBAC boundary enforcement  
-- [x] Weather floating card (external API feature)  
-
-### P2 (Final Polish)
-- [ ] PostgreSQL migration verification  
-- [ ] Frontend E2E tests  
-- [ ] Improve README to final-report format  
-- [ ] Add ai-session.md  
-- [ ] Add demo video link  
-
-## Definition of Done
-- Database persistence works across restarts  
-- Cloud storage works with real uploads/downloads  
-- CSV import produces correct summary results  
-- Check-in UI works with real-time dashboard updates  
-- RBAC enforced across all endpoints  
+## Teammate Setup Notes
+If your teammate clones the repo, they should be able to use it after these local steps:
+1. `npm install`
+2. create `.env` from `.env.example` and fill in the real shared credentials
+3. `npm run db:init`
+4. `npm run dev`
+5. `npm run demo:bootstrap`
 
 ## Testing
 Run API tests:
-npm test -w @checkin/api  
+```bash
+npm test -w @checkin/api
+```
 
 Run all tests:
-npm test  
+```bash
+npm test
+```
 
 ## Project Docs
-- API list: docs/API.md  
-- Demo playbook: docs/DEMO_PLAYBOOK.md  
-- Test cases: docs/TEST_CASES.md  
+- API list: `docs/API.md`
+- Demo playbook: `docs/DEMO_PLAYBOOK.md`
+- Test cases: `docs/TEST_CASES.md`

@@ -14,6 +14,7 @@
     "typecheck": "npm run typecheck --ws --if-present",
     "test": "npm run test --ws --if-present",
     "demo:bootstrap": "node scripts/demo-bootstrap.mjs",
+    "db:init": "node scripts/init-sqlite.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "prisma:studio": "prisma studio"
