@@ -94,6 +94,22 @@ Required for full feature set:
 - API health: `http://localhost:4000/health`
 - Socket.IO endpoint: `http://localhost:4000`
 
+## Online Deployment (Production)
+Recommended stack:
+- Frontend: Vercel (`apps/web`)
+- Backend: Render Web Service (`apps/api`)
+- Database: Neon PostgreSQL
+- Storage: DigitalOcean Spaces / S3-compatible
+
+Deployment guide:
+- See `docs/DEPLOYMENT.md` for end-to-end setup, environment variables, smoke checks, and rollback.
+- Backend can be created from included `render.yaml` via Render Blueprint.
+
+Post-deploy verification:
+```bash
+API_DEPLOY_URL="https://<your-api-domain>" WEB_DEPLOY_URL="https://<your-web-domain>" npm run smoke:deploy
+```
+
 ## Demo Accounts
 After `npm run demo:bootstrap`:
 - `organizer.demo@utoronto.ca` / `pass1234`
@@ -119,7 +135,7 @@ After `npm run demo:bootstrap`:
 - [x] External API integration (OpenWeather card)
 
 ## Remaining Work
-- [ ] PostgreSQL migration verification
+- [x] PostgreSQL migration verification tooling
 - [ ] Frontend E2E tests
 - [ ] Improve README to final-report format
 - [ ] Add `ai-session.md`
@@ -147,4 +163,5 @@ npm test
 ## Project Docs
 - API list: `docs/API.md`
 - Demo playbook: `docs/DEMO_PLAYBOOK.md`
+- Deployment runbook: `docs/DEPLOYMENT.md`
 - Test cases: `docs/TEST_CASES.md`

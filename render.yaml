@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: ece1724-checkin-api
+    runtime: node
+    plan: free
+    autoDeploy: true
+    rootDir: .
+    buildCommand: npm install && npm run build
+    startCommand: npm run start -w @checkin/api
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: WEB_ORIGIN
+        sync: false
+      - key: SPACES_REGION
+        sync: false
+      - key: SPACES_ENDPOINT
+        sync: false
+      - key: SPACES_BUCKET
+        sync: false
+      - key: SPACES_ACCESS_KEY
+        sync: false
+      - key: SPACES_SECRET_KEY
+        sync: false
+      - key: OPENWEATHER_API_KEY
+        sync: false

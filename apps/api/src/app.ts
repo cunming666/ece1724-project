@@ -1,6 +1,6 @@
 import "dotenv/config";
 import cookieParser from "cookie-parser";
-import cors from "cors";
+import cors, { type CorsOptions } from "cors";
 import express from "express";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
@@ -8,15 +8,45 @@ import { ZodError } from "zod";
 import { createApiRouter } from "./routes/api.js";
 import { createAuthRouter } from "./routes/auth.js";
 
+function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/+$/, "");
+}
+
+function parseAllowedOrigins(raw: string | undefined): string[] {
+  const fallback = "http://localhost:5173";
+  const value = raw && raw.trim().length > 0 ? raw : fallback;
+  const origins = value
+    .split(",")
+    .map((item) => normalizeOrigin(item))
+    .filter((item) => item.length > 0);
+
+  return Array.from(new Set(origins));
+}
+
 export function createApp() {
   const app = express();
   const httpServer = createServer(app);
 
-  const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
+  const allowedOrigins = parseAllowedOrigins(process.env.WEB_ORIGIN);
+
+  const corsOrigin: CorsOptions["origin"] = (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    const normalized = normalizeOrigin(origin);
+    if (allowedOrigins.includes(normalized)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error("Not allowed by CORS"));
+  };
 
   const io = new Server(httpServer, {
     cors: {
-      origin: webOrigin,
+      origin: allowedOrigins,
       credentials: true,
     },
   });
@@ -33,7 +63,7 @@ export function createApp() {
 
   app.use(
     cors({
-      origin: webOrigin,
+      origin: corsOrigin,
       credentials: true,
     }),
   );
