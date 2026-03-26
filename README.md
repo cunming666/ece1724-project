@@ -2,7 +2,7 @@
 
 Campus event check-in platform (Organizer / Staff / Attendee) built with React + Express + TypeScript.
 
-## Current Status (as of 2026-03-25)
+## Current Status (as of 2026-03-26)
 - The project is runnable end-to-end as an MVP.
 - Authentication, event registration, waitlist promotion, check-in APIs, and real-time dashboard are available.
 - Demo bootstrap accounts and data are available for direct presentation use.
@@ -110,6 +110,22 @@ Post-deploy verification:
 API_DEPLOY_URL="https://<your-api-domain>" WEB_DEPLOY_URL="https://<your-web-domain>" npm run smoke:deploy
 ```
 
+## One-Click Deployment Pending Items (Platform Actions)
+The deployment configuration is ready in this repo, but the following platform-side actions are still pending:
+
+- [ ] Render: create backend service from `render.yaml` Blueprint
+- [ ] Render: fill required env vars (`DATABASE_URL`, `WEB_ORIGIN`, `SPACES_*`, `OPENWEATHER_API_KEY`)
+- [ ] Vercel: import repo with Root Directory = `apps/web`
+- [ ] Vercel: set `VITE_API_URL` to the Render API domain
+- [ ] Render: update `WEB_ORIGIN` to real Vercel domain(s) and redeploy
+- [ ] Run deployment smoke check with real URLs:
+
+```bash
+API_DEPLOY_URL="https://<your-api-domain>" WEB_DEPLOY_URL="https://<your-web-domain>" npm run smoke:deploy
+```
+
+- [ ] Add final public URLs to this README (`## Deployment Information` section)
+
 ## Demo Accounts
 After `npm run demo:bootstrap`:
 - `organizer.demo@utoronto.ca` / `pass1234`
@@ -136,10 +152,10 @@ After `npm run demo:bootstrap`:
 
 ## Remaining Work
 - [x] PostgreSQL migration verification tooling
-- [ ] Frontend E2E tests
+- [x] Frontend E2E tests
+- [ ] Platform deployment completion (Render + Vercel + smoke check)
 - [ ] Improve README to final-report format
-- [ ] Add `ai-session.md`
-- [ ] Add demo video link
+
 
 ## Teammate Setup Notes
 If your teammate clones the repo, they should be able to use it after these local steps:
@@ -159,6 +175,16 @@ Run all tests:
 ```bash
 npm test
 ```
+
+Run E2E browser tests (Playwright):
+```bash
+npm run test:e2e
+```
+
+## Deployment Information
+- Web URL: Pending
+- API URL: Pending
+- Deployment date: Pending
 
 ## Project Docs
 - API list: `docs/API.md`

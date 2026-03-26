@@ -23,12 +23,15 @@
     "prisma:generate:postgres": "npm run prisma:sync:postgres && prisma generate --schema prisma/schema.postgres.prisma",
     "db:push:postgres": "npm run prisma:sync:postgres && prisma db push --schema prisma/schema.postgres.prisma",
     "verify:postgres": "node scripts/verify-postgres.mjs",
-    "smoke:deploy": "node scripts/deploy-smoke-check.mjs"
+    "smoke:deploy": "node scripts/deploy-smoke-check.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
     "prisma": "^6.4.1",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "@playwright/test": "^1.53.0"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1010.0",
