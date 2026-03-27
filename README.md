@@ -9,9 +9,10 @@ Campus event check-in platform (Organizer / Staff / Attendee) built with React +
 - Core requirements are mostly complete.
 - Registration/check-in paths now include transactional consistency guards for concurrency.
 - External API integration (OpenWeather) is available through the organizer control panel.
+- Advanced shared client state management is now implemented with Redux Toolkit for cross-view workspace state and persisted UI selections.
 
 ## Tech Stack
-- Frontend: React + Vite + TypeScript + Tailwind CSS + React Router + TanStack Query
+- Frontend: React + Vite + TypeScript + Tailwind CSS + React Router + TanStack Query + Redux Toolkit
 - Backend: Express + TypeScript + Socket.IO + Zod
 - Data: Prisma + SQLite for local development, PostgreSQL-ready verification/deploy workflow
 - Storage: DigitalOcean Spaces / S3-compatible presigned upload and download
@@ -166,6 +167,14 @@ After `npm run demo:bootstrap`:
 - [x] Demo bootstrap script
 - [x] API integration tests (including RBAC regression matrix and check-in concurrency case)
 - [x] External API integration (OpenWeather card)
+- [x] Advanced shared client state management with Redux Toolkit
+
+## Advanced Features Implemented
+- [x] User authentication and authorization: account registration/login, protected APIs, and role-based access control for organizer/staff/attendee flows.
+- [x] Real-time functionality: Socket.IO attendance updates for dashboard/check-in workflows without page refresh.
+- [x] File handling and processing: cloud-backed CSV attendee import with parsing, validation, deduplication, and registration/ticket generation.
+- [x] Advanced state management: Redux Toolkit store for shared workspace state, persisted overview filters, selected organizer event context, dashboard layout state, and attendee ticket selection across views.
+- [x] Integration with external APIs/services: weather card backed by OpenWeather API.
 
 ## Remaining Work
 - [x] PostgreSQL migration verification tooling

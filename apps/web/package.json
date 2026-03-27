@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@checkin/shared": "file:../../packages/shared",
+    "@reduxjs/toolkit": "^2.11.2",
     "@tanstack/react-query": "^5.66.0",
     "html5-qrcode": "^2.3.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-redux": "^9.2.0",
     "react-router-dom": "^6.30.0",
     "socket.io-client": "^4.8.1"
   },
@@ -29,4 +31,3 @@
     "vite": "^5.4.14"
   }
 }
-

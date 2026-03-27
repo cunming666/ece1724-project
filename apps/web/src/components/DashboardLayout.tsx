@@ -1,8 +1,10 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Pill } from "./ui";
 import { useSessionQuery } from "../lib/session";
 import { getPanelNavEntries, panelSectionFromPath } from "../lib/panelNav";
+import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { closeSidebar, setDashboardSearchText, toggleSidebar } from "../store/slices/dashboardSlice";
 
 function getPageTitle(pathname: string): string {
   if (pathname === "/panel/organizer") {
@@ -48,18 +50,19 @@ function initials(name?: string): string {
 export function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const sessionQuery = useSessionQuery(true);
   const user = sessionQuery.data;
   const role = user?.role;
-  const [searchText, setSearchText] = useState("");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const searchText = useAppSelector((state) => state.dashboard.searchText);
+  const isSidebarOpen = useAppSelector((state) => state.dashboard.isSidebarOpen);
 
   const activeSection = panelSectionFromPath(location.pathname);
   const menu = getPanelNavEntries(role);
 
   useEffect(() => {
-    setIsSidebarOpen(false);
-  }, [location.pathname]);
+    dispatch(closeSidebar());
+  }, [dispatch, location.pathname]);
 
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,6 +94,7 @@ export function DashboardLayout() {
     }
 
     navigate("/panel");
+    dispatch(closeSidebar());
   }
 
   const topbarHint = useMemo(() => {
@@ -107,7 +111,7 @@ export function DashboardLayout() {
     <div className="dashboard-shell">
       <div className="dashboard-frame">
         <aside className={`dashboard-sidebar ${isSidebarOpen ? "is-open" : ""}`}>
-          <Link to="/panel" className="dashboard-brand" onClick={() => setIsSidebarOpen(false)}>
+          <Link to="/panel" className="dashboard-brand" onClick={() => dispatch(closeSidebar())}>
             <span className="dashboard-brand-mark">EC</span>
             <span className="dashboard-brand-text">Event Console</span>
           </Link>
@@ -119,7 +123,7 @@ export function DashboardLayout() {
                 key={item.to}
                 to={item.to}
                 className={`dashboard-nav-item ${activeSection === item.section ? "is-active" : ""}`}
-                onClick={() => setIsSidebarOpen(false)}
+                onClick={() => dispatch(closeSidebar())}
               >
                 {item.label}
               </Link>
@@ -138,7 +142,7 @@ export function DashboardLayout() {
           type="button"
           className={`dashboard-overlay ${isSidebarOpen ? "is-open" : ""}`}
           aria-label="Close menu"
-          onClick={() => setIsSidebarOpen(false)}
+          onClick={() => dispatch(closeSidebar())}
         />
 
         <section className="dashboard-main">
@@ -147,7 +151,7 @@ export function DashboardLayout() {
               <button
                 type="button"
                 className="dashboard-menu-toggle"
-                onClick={() => setIsSidebarOpen((prev) => !prev)}
+                onClick={() => dispatch(toggleSidebar())}
                 aria-expanded={isSidebarOpen}
                 aria-controls="panel-sidebar-nav"
               >
@@ -165,7 +169,7 @@ export function DashboardLayout() {
                   placeholder="Try: organizer / staff / events / tickets / eventId"
                   aria-label="Search modules"
                   value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
+                  onChange={(event) => dispatch(setDashboardSearchText(event.target.value))}
                 />
               </form>
 

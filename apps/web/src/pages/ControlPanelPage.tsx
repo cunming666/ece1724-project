@@ -9,6 +9,9 @@ import { EventBoardPanel } from "../components/panel/EventBoardPanel";
 import { OrganizerPanel } from "../components/panel/OrganizerPanel";
 import { OverviewPanel } from "../components/panel/OverviewPanel";
 import { StaffPanel } from "../components/panel/StaffPanel";
+import { resetClientState } from "../store";
+import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { dismissWeatherCard, setNotice, setOverviewRange, setSelectedOrganizerEventId, type OverviewRange } from "../store/slices/panelSlice";
 
 type EventItem = {
   id: string;
@@ -50,7 +53,6 @@ type Notice = {
 };
 
 type PanelView = "overview" | "organizer" | "staff" | "events";
-type OverviewRange = "TODAY" | "WEEK";
 type CsvImportIssue = {
   rowNumber: number;
   reason: string;
@@ -94,9 +96,6 @@ type FileDownloadResponse = {
   };
   downloadUrl: string;
 };
-
-const OVERVIEW_RANGE_STORAGE_KEY = "panel-overview-range";
-
 function parseOverviewRange(value: string | null | undefined): OverviewRange | null {
   if (!value) {
     return null;
@@ -147,7 +146,8 @@ export function ControlPanelPage() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [notice, setNotice] = useState<Notice | null>(null);
+  const dispatch = useAppDispatch();
+  const notice = useAppSelector((state) => state.panel.notice as Notice | null);
 
   const sessionQuery = useSessionQuery(true);
   const currentUser = sessionQuery.data;
@@ -159,7 +159,7 @@ export function ControlPanelPage() {
     capacity: 100,
   });
 
-  const [selectedEventId, setSelectedEventId] = useState("");
+  const selectedEventId = useAppSelector((state) => state.panel.selectedOrganizerEventId);
   const [staffEmail, setStaffEmail] = useState("");
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvImportResult, setCsvImportResult] = useState<CsvImportResponse | null>(null);
@@ -169,19 +169,8 @@ export function ControlPanelPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [changePasswordMessage, setChangePasswordMessage] = useState("");
-  const [overviewRange, setOverviewRange] = useState<OverviewRange>(() => {
-    const fromQuery = parseOverviewRange(new URLSearchParams(window.location.search).get("range"));
-    if (fromQuery) {
-      return fromQuery;
-    }
-
-    try {
-      return parseOverviewRange(window.localStorage.getItem(OVERVIEW_RANGE_STORAGE_KEY)) ?? "WEEK";
-    } catch {
-      return "WEEK";
-    }
-  });
-  const [showWeatherCard, setShowWeatherCard] = useState(true);
+  const overviewRange = useAppSelector((state) => state.panel.overviewRange);
+  const showWeatherCard = useAppSelector((state) => state.panel.showWeatherCard);
   const eventsQuery = useQuery({
     queryKey: ["events"],
     queryFn: () => apiFetch<{ items: EventItem[] }>("/api/events"),
@@ -218,22 +207,21 @@ export function ControlPanelPage() {
 
   useEffect(() => {
     if (currentUser?.role !== "ORGANIZER") {
-      setSelectedEventId("");
+      dispatch(setSelectedOrganizerEventId(""));
       return;
     }
 
     if (!myPublishedEvents.length) {
-      setSelectedEventId("");
+      dispatch(setSelectedOrganizerEventId(""));
       return;
     }
 
-    setSelectedEventId((prev) => {
-      if (prev && myPublishedEvents.some((event) => event.id === prev)) {
-        return prev;
-      }
-      return myPublishedEvents[0]?.id ?? "";
-    });
-  }, [currentUser?.role, myPublishedEvents]);
+    if (selectedEventId && myPublishedEvents.some((event) => event.id === selectedEventId)) {
+      return;
+    }
+
+    dispatch(setSelectedOrganizerEventId(myPublishedEvents[0]?.id ?? ""));
+  }, [currentUser?.role, dispatch, myPublishedEvents, selectedEventId]);
 
   useEffect(() => {
     const missing = eventsWithCover.filter((event) => event.coverFileId && !coverPreviewUrlsByEvent[event.id]);
@@ -274,19 +262,13 @@ export function ControlPanelPage() {
     }
 
     const fromQuery = parseOverviewRange(searchParams.get("range"));
-    if (fromQuery) {
-      setOverviewRange((prev) => (prev === fromQuery ? prev : fromQuery));
+    if (fromQuery && fromQuery !== overviewRange) {
+      dispatch(setOverviewRange(fromQuery));
     }
-  }, [location.pathname, searchParams]);
+  }, [dispatch, location.pathname, overviewRange, searchParams]);
 
   useEffect(() => {
     const serializedRange = overviewRange.toLowerCase();
-
-    try {
-      window.localStorage.setItem(OVERVIEW_RANGE_STORAGE_KEY, serializedRange);
-    } catch {
-      // Ignore storage errors in restricted environments.
-    }
 
     if (location.pathname !== "/panel") {
       return;
@@ -455,27 +437,27 @@ export function ControlPanelPage() {
       });
     },
     onSuccess: (created) => {
-      setNotice({
+      dispatch(setNotice({
         tone: "success",
         text: `Draft event "${created.title}" created. You can now publish it directly from My Event Studio.`,
-      });
+      }));
       setEventForm({ title: "", location: "", startTime: "", capacity: 100 });
       queryClient.invalidateQueries({ queryKey: ["my-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
     },
     onError: (err: Error) => {
-      setNotice({ tone: "error", text: err.message });
+      dispatch(setNotice({ tone: "error", text: err.message }));
     },
   });
 
   const publishEvent = useMutation({
     mutationFn: (eventId: string) => apiFetch<EventItem>(`/api/events/${eventId}/publish`, { method: "POST" }),
     onSuccess: (published) => {
-      setNotice({ tone: "success", text: `Event "${published.title}" is now published and visible in the public board.` });
+      dispatch(setNotice({ tone: "success", text: `Event "${published.title}" is now published and visible in the public board.` }));
       queryClient.invalidateQueries({ queryKey: ["my-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
     },
-    onError: (err: Error) => setNotice({ tone: "error", text: err.message }),
+    onError: (err: Error) => dispatch(setNotice({ tone: "error", text: err.message })),
   });
 
   const register = useMutation({
@@ -486,14 +468,14 @@ export function ControlPanelPage() {
       ),
     onSuccess: (payload) => {
       if (payload.registration.status === "WAITLISTED") {
-        setNotice({ tone: "info", text: "Event is full. You have been added to the waitlist." });
+        dispatch(setNotice({ tone: "info", text: "Event is full. You have been added to the waitlist." }));
       } else {
-        setNotice({ tone: "success", text: "Registered successfully. Your ticket is now available in My Tickets." });
+        dispatch(setNotice({ tone: "success", text: "Registered successfully. Your ticket is now available in My Tickets." }));
       }
       queryClient.invalidateQueries({ queryKey: ["my-tickets"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
     },
-    onError: (err: Error) => setNotice({ tone: "error", text: err.message }),
+    onError: (err: Error) => dispatch(setNotice({ tone: "error", text: err.message })),
   });
 
   const assignStaff = useMutation({
@@ -511,12 +493,12 @@ export function ControlPanelPage() {
       });
     },
     onSuccess: () => {
-      setNotice({ tone: "success", text: "Staff assigned successfully." });
+      dispatch(setNotice({ tone: "success", text: "Staff assigned successfully." }));
       setStaffEmail("");
       queryClient.invalidateQueries({ queryKey: ["event-staff", selectedEventId] });
     },
     onError: (err: Error) => {
-      setNotice({ tone: "error", text: err.message });
+      dispatch(setNotice({ tone: "error", text: err.message }));
     },
   });
 
@@ -530,11 +512,11 @@ export function ControlPanelPage() {
       });
     },
     onSuccess: () => {
-      setNotice({ tone: "success", text: "Staff removed successfully." });
+      dispatch(setNotice({ tone: "success", text: "Staff removed successfully." }));
       queryClient.invalidateQueries({ queryKey: ["event-staff", selectedEventId] });
     },
     onError: (err: Error) => {
-      setNotice({ tone: "error", text: err.message });
+      dispatch(setNotice({ tone: "error", text: err.message }));
     },
   });
 
@@ -582,17 +564,17 @@ export function ControlPanelPage() {
     
     onSuccess: (payload) => {
       setCsvImportResult(payload);
-      setNotice({
+      dispatch(setNotice({
         tone: "success",
         text: `CSV import completed. Imported ${payload.summary.importedRows} row(s), ${payload.summary.duplicateRows} duplicate row(s), ${payload.summary.invalidRows} invalid row(s).`,
-      });
+      }));
       setCsvFile(null);
       queryClient.invalidateQueries({ queryKey: ["events"] });
       queryClient.invalidateQueries({ queryKey: ["my-events"] });
       queryClient.invalidateQueries({ queryKey: ["event-import-jobs", selectedEventId] });
     },
     onError: (err: Error) => {
-      setNotice({ tone: "error", text: err.message });
+      dispatch(setNotice({ tone: "error", text: err.message }));
     },
   });
 
@@ -652,15 +634,15 @@ export function ControlPanelPage() {
         ...prev,
         [eventId]: coverUrl,
       }));
-      setNotice({
+      dispatch(setNotice({
         tone: "success",
         text: `Cover image updated for event "${eventTitle}".`,
-      });
+      }));
       queryClient.invalidateQueries({ queryKey: ["my-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
     },
     onError: (err: Error) => {
-      setNotice({ tone: "error", text: err.message });
+      dispatch(setNotice({ tone: "error", text: err.message }));
     },
   });
   const changePassword = useMutation({
@@ -691,11 +673,11 @@ export function ControlPanelPage() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmNewPassword("");
-      setNotice({ tone: "success", text: "Password updated successfully." });
+      dispatch(setNotice({ tone: "success", text: "Password updated successfully." }));
     },
     onError: (err: Error) => {
       setChangePasswordMessage(err.message);
-      setNotice({ tone: "error", text: err.message });
+      dispatch(setNotice({ tone: "error", text: err.message }));
     },
   });
 
@@ -747,11 +729,12 @@ export function ControlPanelPage() {
     mutationFn: () => apiFetch("/auth/sign-out", { method: "POST" }),
     onSuccess: () => {
       clearSessionToken();
+      dispatch(resetClientState());
       queryClient.removeQueries({ queryKey: SESSION_QUERY_KEY });
       navigate("/auth", { replace: true });
     },
     onError: (err: Error) => {
-      setNotice({ tone: "error", text: err.message });
+      dispatch(setNotice({ tone: "error", text: err.message }));
     },
   });
 
@@ -862,7 +845,7 @@ export function ControlPanelPage() {
               <OverviewPanel
                 currentUserRole={currentUser?.role}
                 overviewRange={overviewRange}
-                onChangeRange={setOverviewRange}
+                onChangeRange={(range) => dispatch(setOverviewRange(range))}
                 overviewRangeMeta={overviewRangeMeta}
                 overviewScopedEvents={overviewScopedEvents}
                 overviewUpcomingEvents={overviewUpcomingEvents}
@@ -907,7 +890,7 @@ export function ControlPanelPage() {
                   onPublish: (eventId) => publishEvent.mutate(eventId),
                 }}
                 selectedEventId={selectedEventId}
-                onSelectEventId={setSelectedEventId}
+                onSelectEventId={(eventId) => dispatch(setSelectedOrganizerEventId(eventId))}
                 staffEmail={staffEmail}
                 onStaffEmailChange={setStaffEmail}
                 assignStaffState={{
@@ -1034,7 +1017,7 @@ export function ControlPanelPage() {
             </div>
             <button
               type="button"
-              onClick={() => setShowWeatherCard(false)}
+              onClick={() => dispatch(dismissWeatherCard())}
               className="rounded-full px-2 py-1 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
             >
               x
@@ -1068,11 +1051,6 @@ export function ControlPanelPage() {
     </main>
   );
 }
-
-
-
-
-
 
 
 

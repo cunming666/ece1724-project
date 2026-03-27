@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Button, Card, Pill } from "../components/ui";
 import { apiFetch, apiFetchText } from "../lib/api";
 import { useSessionQuery } from "../lib/session";
+import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { clearCopyMessage, setCopyMessage, setSelectedTicketId } from "../store/slices/ticketsSlice";
 
 type TicketItem = {
   id: string;
@@ -45,10 +47,11 @@ function ticketStatusText(ticket: TicketItem): string {
 }
 
 export function AttendeeTicketsPage() {
+  const dispatch = useAppDispatch();
   const sessionQuery = useSessionQuery(true);
   const currentUser = sessionQuery.data;
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
-  const [copyMessage, setCopyMessage] = useState("");
+  const selectedTicketId = useAppSelector((state) => state.tickets.selectedTicketId);
+  const copyMessage = useAppSelector((state) => state.tickets.copyMessage);
 
   const ticketsQuery = useQuery({
     queryKey: ["my-tickets"],
@@ -60,19 +63,17 @@ export function AttendeeTicketsPage() {
 
   useEffect(() => {
     if (!tickets.length) {
-      setSelectedTicketId(null);
+      dispatch(setSelectedTicketId(null));
       return;
     }
 
-    setSelectedTicketId((prev) => {
-      if (prev && tickets.some((ticket) => ticket.id === prev)) {
-        return prev;
-      }
+    if (selectedTicketId && tickets.some((ticket) => ticket.id === selectedTicketId)) {
+      return;
+    }
 
-      const firstActive = tickets.find((ticket) => !ticket.revokedAt);
-      return (firstActive ?? tickets[0])?.id ?? null;
-    });
-  }, [tickets]);
+    const firstActive = tickets.find((ticket) => !ticket.revokedAt);
+    dispatch(setSelectedTicketId((firstActive ?? tickets[0])?.id ?? null));
+  }, [dispatch, selectedTicketId, tickets]);
 
   const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId) ?? null;
 
@@ -93,11 +94,11 @@ export function AttendeeTicketsPage() {
   async function handleCopyTicketId(ticketId: string) {
     try {
       await navigator.clipboard.writeText(ticketId);
-      setCopyMessage("Ticket ID copied.");
-      window.setTimeout(() => setCopyMessage(""), 2000);
+      dispatch(setCopyMessage("Ticket ID copied."));
+      window.setTimeout(() => dispatch(clearCopyMessage()), 2000);
     } catch {
-      setCopyMessage("Clipboard is unavailable in this browser.");
-      window.setTimeout(() => setCopyMessage(""), 2500);
+      dispatch(setCopyMessage("Clipboard is unavailable in this browser."));
+      window.setTimeout(() => dispatch(clearCopyMessage()), 2500);
     }
   }
 
@@ -197,7 +198,7 @@ export function AttendeeTicketsPage() {
                   <button
                     key={ticket.id}
                     type="button"
-                    onClick={() => setSelectedTicketId(ticket.id)}
+                    onClick={() => dispatch(setSelectedTicketId(ticket.id))}
                     className={`w-full rounded-2xl border p-4 text-left transition ${
                       selected
                         ? "border-brand-400 bg-brand-50/80 shadow-soft"
