@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiFetch } from "../lib/api";
 import { socket } from "../lib/socket";
@@ -52,6 +52,13 @@ type Notice = {
   tone: "success" | "error";
   text: string;
 };
+
+function formatDateTime(value?: string | null): string {
+  if (!value) {
+    return "-";
+  }
+  return new Date(value).toLocaleString();
+}
 
 export function DashboardPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -136,30 +143,67 @@ export function DashboardPage() {
     };
   }, [eventId]);
 
-  return (
-    <main className="app-shell mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-10">
-      <div className="hero-glow" />
+  const confirmed = data?.confirmed ?? 0;
+  const waitlisted = data?.waitlisted ?? 0;
+  const checkedIn = data?.checkedIn ?? 0;
+  const pendingCheckin = Math.max(confirmed - checkedIn, 0);
+  const checkinRate = confirmed > 0 ? Math.round((checkedIn / confirmed) * 100) : 0;
+  const totalFlow = confirmed + waitlisted;
 
-      <section className="stagger-enter rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-brand-900 p-6 text-white md:p-8">
+  const distribution = useMemo(() => {
+    const rows = [
+      { label: "Checked In", value: checkedIn, tone: "bg-emerald-500" },
+      { label: "Pending Check-in", value: pendingCheckin, tone: "bg-sky-500" },
+      { label: "Waitlist", value: waitlisted, tone: "bg-amber-500" },
+    ];
+    const maxValue = Math.max(...rows.map((item) => item.value), 1);
+    return rows.map((item) => ({
+      ...item,
+      widthPct: Math.max(8, Math.round((item.value / maxValue) * 100)),
+    }));
+  }, [checkedIn, pendingCheckin, waitlisted]);
+
+  const trendBars = useMemo(() => {
+    const buckets = [0, 0, 0, 0, 0, 0];
+    const latest = (data?.recentCheckins ?? []).slice(0, 12).reverse();
+    if (!latest.length) {
+      return buckets.map(() => 12);
+    }
+
+    latest.forEach((item, index) => {
+      const bucketIndex = Math.min(5, Math.floor((index / Math.max(latest.length, 1)) * 6));
+      const current = buckets[bucketIndex] ?? 0;
+      buckets[bucketIndex] = current + (item.isDuplicate ? 0.5 : 1);
+    });
+
+    const max = Math.max(...buckets, 1);
+    return buckets.map((value) => Math.max(12, Math.round((value / max) * 100)));
+  }, [data?.recentCheckins]);
+
+  return (
+    <main className="app-shell page-saas mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
+      <section className="stagger-enter rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-200">Live Operations</p>
-            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">
-              Real-time Attendance Dashboard
-            </h1>
-            <p className="mt-2 text-sm text-slate-200">Event ID: {eventId}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-700">Live Operations</p>
+            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Attendance Dashboard</h1>
+            <p className="mt-2 text-sm text-slate-600">Event ID: {eventId}</p>
           </div>
-          <Link
-            to="/panel"
-            className="inline-flex h-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/20"
-          >
-            Back to Panel
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" onClick={loadDashboard} disabled={isLoading}>
+              {isLoading ? "Refreshing..." : "Refresh"}
+            </Button>
+            <Link
+              to="/panel"
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
+            >
+              Back to Panel
+            </Link>
+          </div>
         </div>
-
         <div className="mt-5 flex items-center gap-2">
           <Pill tone="brand">Socket.IO Connected</Pill>
-          <Pill tone="slate">Auto Refresh on Check-in</Pill>
+          <Pill tone="slate">Live Refresh Enabled</Pill>
         </div>
       </section>
 
@@ -181,138 +225,134 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-      <section className="mt-6 grid gap-4 md:grid-cols-3">
-        <Card className="stagger-enter stagger-1" title="Confirmed Attendees" subtitle="Eligible for check-in">
-          <p className="font-heading text-5xl font-bold text-slate-900">{data?.confirmed ?? 0}</p>
+      <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="stagger-enter stagger-1" title="Confirmed" subtitle="Eligible attendees">
+          <p className="font-heading text-4xl font-bold text-slate-900">{confirmed}</p>
         </Card>
-        <Card className="stagger-enter stagger-2" title="Waitlisted" subtitle="Pending promotion if slots free">
-          <p className="font-heading text-5xl font-bold text-slate-900">{data?.waitlisted ?? 0}</p>
+        <Card className="stagger-enter stagger-2" title="Checked In" subtitle="Completed entries">
+          <p className="font-heading text-4xl font-bold text-slate-900">{checkedIn}</p>
         </Card>
-        <Card className="stagger-enter stagger-3" title="Checked In" subtitle="Successful non-duplicate scans">
-          <p className="font-heading text-5xl font-bold text-slate-900">{data?.checkedIn ?? 0}</p>
+        <Card className="stagger-enter stagger-3" title="Pending" subtitle="Confirmed but not checked in">
+          <p className="font-heading text-4xl font-bold text-slate-900">{pendingCheckin}</p>
         </Card>
-      </section>
-
-      <section className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card
-          className="stagger-enter stagger-4"
-          title="Confirmed Attendee List"
-          subtitle="All confirmed attendees currently eligible for check-in"
-        >
-          <div className="space-y-3">
-            {data?.confirmedAttendees?.length ? (
-              data.confirmedAttendees.map((item) => (
-                <article key={item.id} className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-900">{item.attendee.name}</p>
-                      <p className="text-sm text-slate-600">{item.attendee.email}</p>
-                    </div>
-                    <Pill tone="brand">Confirmed</Pill>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Registered at {new Date(item.registeredAt).toLocaleString()}
-                  </p>
-                </article>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
-                No confirmed attendees yet.
-              </div>
-            )}
-          </div>
-        </Card>
-
-        <Card
-          className="stagger-enter stagger-5"
-          title="Waitlisted Attendee List"
-          subtitle="Attendees waiting for promotion when slots become available"
-        >
-          <div className="space-y-3">
-            {data?.waitlistedAttendees?.length ? (
-              data.waitlistedAttendees.map((item) => (
-                <article key={item.id} className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-900">{item.attendee.name}</p>
-                      <p className="text-sm text-slate-600">{item.attendee.email}</p>
-                    </div>
-                    <Pill tone="warm">
-                      {item.waitlistPosition ? `Waitlist #${item.waitlistPosition}` : "Waitlisted"}
-                    </Pill>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Registered at {new Date(item.registeredAt).toLocaleString()}
-                  </p>
-                </article>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
-                No waitlisted attendees.
-              </div>
-            )}
-          </div>
+        <Card className="stagger-enter stagger-4" title="Check-in Rate" subtitle="Checked-in / confirmed">
+          <p className="font-heading text-4xl font-bold text-slate-900">{checkinRate}%</p>
         </Card>
       </section>
 
-      <Card
-        className="stagger-enter stagger-6 mt-5"
-        title="Manual Check-in"
-        subtitle="Enter a ticket ID to perform a manual check-in."
-      >
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-          <div>
-            <FieldLabel>Ticket ID</FieldLabel>
-            <Input
-              placeholder="Paste ticket ID here"
-              value={ticketId}
-              onChange={(e) => setTicketId(e.target.value)}
-            />
-          </div>
-          <div className="flex items-end">
-            <Button onClick={manualCheckIn} disabled={isCheckingIn}>
-              {isCheckingIn ? "Checking in..." : "Manual Check-in"}
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      <Card
-        className="stagger-enter stagger-7 mt-5"
-        title="Recent Check-ins"
-        subtitle="Latest 10 records ordered by check-in time"
-        headerRight={
-          <Button onClick={loadDashboard} disabled={isLoading} variant="ghost">
-            {isLoading ? "Refreshing..." : "Refresh"}
-          </Button>
-        }
-      >
-        <div className="space-y-3">
-          {data?.recentCheckins?.length ? (
-            data.recentCheckins.map((item) => (
-              <article key={item.id} className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-slate-900">{item.ticket.attendee.name}</p>
-                    <p className="text-sm text-slate-600">{item.ticket.attendee.email}</p>
+      <section className="mt-6 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="space-y-5">
+          <Card className="stagger-enter stagger-2" title="Attendance Distribution" subtitle="Current attendee state breakdown">
+            <div className="space-y-4">
+              {distribution.map((item) => (
+                <div key={item.label}>
+                  <div className="mb-1 flex items-center justify-between text-sm">
+                    <span className="font-semibold text-slate-700">{item.label}</span>
+                    <span className="text-slate-600">{item.value}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Pill tone={item.isDuplicate ? "warm" : "brand"}>
-                      {item.isDuplicate ? "Duplicate" : "Valid"}
-                    </Pill>
-                    <Pill tone="slate">{item.method}</Pill>
+                  <div className="h-3 rounded-full bg-slate-100">
+                    <div className={`${item.tone} h-full rounded-full`} style={{ width: `${item.widthPct}%` }} />
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-slate-500">{new Date(item.checkedInAt).toLocaleString()}</p>
-              </article>
-            ))
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
-              No check-ins yet.
+              ))}
+              <p className="text-xs text-slate-500">Tracked registrations in flow: {totalFlow}</p>
             </div>
-          )}
+          </Card>
+
+          <Card className="stagger-enter stagger-3" title="Check-in Trend" subtitle="Relative trend based on latest check-in records">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex h-44 items-end gap-3">
+                {trendBars.map((height, index) => (
+                  <div key={`${height}-${index}`} className="flex flex-1 flex-col items-center gap-2">
+                    <div className="w-full rounded-t-md bg-brand-500/85" style={{ height: `${height}%` }} />
+                    <span className="text-[11px] font-semibold text-slate-500">T{index + 1}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
         </div>
-      </Card>
+
+        <Card
+          className="stagger-enter stagger-4"
+          title="Activity Stream"
+          subtitle="Latest check-in events and outcomes"
+          headerRight={<Pill tone="slate">{data?.recentCheckins?.length ?? 0}</Pill>}
+        >
+          <div className="space-y-3">
+            {data?.recentCheckins?.length ? (
+              data.recentCheckins.map((item) => (
+                <article key={item.id} className="rounded-2xl border border-slate-200/80 bg-white/80 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">{item.ticket.attendee.name}</p>
+                      <p className="text-sm text-slate-600">{item.ticket.attendee.email}</p>
+                      <p className="mt-1 text-xs text-slate-500">{formatDateTime(item.checkedInAt)}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Pill tone={item.isDuplicate ? "warm" : "brand"}>{item.isDuplicate ? "Duplicate" : "Valid"}</Pill>
+                      <Pill tone="slate">{item.method}</Pill>
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
+                No activity yet.
+              </div>
+            )}
+          </div>
+        </Card>
+      </section>
+
+      <section className="mt-6 grid gap-5 xl:grid-cols-2">
+        <Card className="stagger-enter stagger-5" title="Manual Check-in" subtitle="Fallback when QR scanning is unavailable">
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <div>
+              <FieldLabel>Ticket ID</FieldLabel>
+              <Input
+                placeholder="Paste ticket ID here"
+                value={ticketId}
+                onChange={(event) => setTicketId(event.target.value)}
+              />
+            </div>
+            <div className="flex items-end">
+              <Button onClick={manualCheckIn} disabled={isCheckingIn}>
+                {isCheckingIn ? "Checking in..." : "Manual Check-in"}
+              </Button>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="stagger-enter stagger-6" title="Roster Snapshot" subtitle="Confirmed and waitlisted attendees">
+          <div className="grid gap-3">
+            <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Confirmed</p>
+              <div className="mt-3 space-y-2">
+                {data?.confirmedAttendees?.slice(0, 5).map((item) => (
+                  <div key={item.id} className="text-sm text-slate-700">
+                    <span className="font-semibold text-slate-900">{item.attendee.name}</span> - {item.attendee.email}
+                  </div>
+                ))}
+                {!data?.confirmedAttendees?.length ? <p className="text-sm text-slate-600">No confirmed attendees.</p> : null}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Waitlist</p>
+              <div className="mt-3 space-y-2">
+                {data?.waitlistedAttendees?.slice(0, 5).map((item) => (
+                  <div key={item.id} className="text-sm text-slate-700">
+                    <span className="font-semibold text-slate-900">{item.attendee.name}</span>
+                    {" "}- #{item.waitlistPosition ?? "-"}
+                  </div>
+                ))}
+                {!data?.waitlistedAttendees?.length ? <p className="text-sm text-slate-600">No waitlisted attendees.</p> : null}
+              </div>
+            </div>
+          </div>
+        </Card>
+      </section>
     </main>
   );
 }

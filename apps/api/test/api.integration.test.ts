@@ -583,3 +583,154 @@ describe("CSV attendee import", () => {
       .expect(400);
   });
 });
+
+describe("RBAC matrix regression", () => {
+  test("enforces role permissions for core organizer/staff/attendee endpoints", async () => {
+    const organizer = await signUpAndSignIn({
+      email: "rbac+organizer@utoronto.ca",
+      name: "RBAC Organizer",
+      role: "ORGANIZER",
+    });
+
+    const staff = await signUpAndSignIn({
+      email: "rbac+staff@utoronto.ca",
+      name: "RBAC Staff",
+      role: "STAFF",
+    });
+
+    const attendee = await signUpAndSignIn({
+      email: "rbac+attendee@utoronto.ca",
+      name: "RBAC Attendee",
+      role: "ATTENDEE",
+    });
+
+    await api
+      .post("/api/events")
+      .set("Authorization", `Bearer ${staff.token}`)
+      .send({
+        title: "Staff Should Not Create",
+        description: "rbac",
+        location: "BA 1130",
+        startTime: new Date(Date.now() + 3600_000).toISOString(),
+        capacity: 10,
+        waitlistEnabled: true,
+      })
+      .expect(403);
+
+    await api
+      .post("/api/events")
+      .set("Authorization", `Bearer ${attendee.token}`)
+      .send({
+        title: "Attendee Should Not Create",
+        description: "rbac",
+        location: "BA 1130",
+        startTime: new Date(Date.now() + 3600_000).toISOString(),
+        capacity: 10,
+        waitlistEnabled: true,
+      })
+      .expect(403);
+
+    const createdEvent = await api
+      .post("/api/events")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        title: "RBAC Matrix Event",
+        description: "rbac",
+        location: "BA 1130",
+        startTime: new Date(Date.now() + 3600_000).toISOString(),
+        capacity: 10,
+        waitlistEnabled: true,
+      })
+      .expect(201);
+
+    const eventId = createdEvent.body.id as string;
+
+    await api.post(`/api/events/${eventId}/publish`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
+
+    await api
+      .post(`/api/events/${eventId}/staff`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({ email: staff.user.email })
+      .expect(201);
+
+    const registration = await api
+      .post(`/api/events/${eventId}/register`)
+      .set("Authorization", `Bearer ${attendee.token}`)
+      .expect(201);
+
+    const ticketId = registration.body.ticket.id as string;
+
+    await api.get(`/api/events/${eventId}/attendees`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
+    await api.get(`/api/events/${eventId}/attendees`).set("Authorization", `Bearer ${staff.token}`).expect(200);
+    await api.get(`/api/events/${eventId}/attendees`).set("Authorization", `Bearer ${attendee.token}`).expect(403);
+
+    await api.get(`/api/events/${eventId}/dashboard`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
+    await api.get(`/api/events/${eventId}/dashboard`).set("Authorization", `Bearer ${staff.token}`).expect(200);
+    await api.get(`/api/events/${eventId}/dashboard`).set("Authorization", `Bearer ${attendee.token}`).expect(403);
+
+    await api.post("/api/checkins/manual").set("Authorization", `Bearer ${attendee.token}`).send({ ticketId }).expect(403);
+    await api.post("/api/checkins/manual").set("Authorization", `Bearer ${staff.token}`).send({ ticketId }).expect(201);
+    await api.post("/api/checkins/manual").set("Authorization", `Bearer ${organizer.token}`).send({ ticketId }).expect(201);
+  });
+});
+
+describe("Check-in concurrency consistency", () => {
+  test("creates at most one non-duplicate check-in under concurrent submissions", async () => {
+    const organizer = await signUpAndSignIn({
+      email: "org+concurrent@utoronto.ca",
+      name: "Org Concurrent",
+      role: "ORGANIZER",
+    });
+    const staff = await signUpAndSignIn({
+      email: "staff+concurrent@utoronto.ca",
+      name: "Staff Concurrent",
+      role: "STAFF",
+    });
+    const attendee = await signUpAndSignIn({
+      email: "attendee+concurrent@utoronto.ca",
+      name: "Attendee Concurrent",
+      role: "ATTENDEE",
+    });
+
+    const createdEvent = await api
+      .post("/api/events")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        title: "Concurrent Check-in Event",
+        description: "concurrency",
+        location: "Myhal",
+        startTime: new Date(Date.now() + 7200_000).toISOString(),
+        capacity: 10,
+        waitlistEnabled: true,
+      })
+      .expect(201);
+
+    const eventId = createdEvent.body.id as string;
+
+    await api.post(`/api/events/${eventId}/publish`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
+    await api
+      .post(`/api/events/${eventId}/staff`)
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({ email: staff.user.email })
+      .expect(201);
+
+    const registration = await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendee.token}`).expect(201);
+    const ticketId = registration.body.ticket.id as string;
+
+    await Promise.all([
+      api.post("/api/checkins/manual").set("Authorization", `Bearer ${organizer.token}`).send({ ticketId }).expect(201),
+      api.post("/api/checkins/manual").set("Authorization", `Bearer ${staff.token}`).send({ ticketId }).expect(201),
+    ]);
+
+    const logs = await prisma.checkinLog.findMany({
+      where: {
+        eventId,
+        ticketId,
+      },
+    });
+
+    expect(logs).toHaveLength(2);
+    expect(logs.filter((item) => item.isDuplicate === false)).toHaveLength(1);
+    expect(logs.filter((item) => item.isDuplicate === true)).toHaveLength(1);
+  });
+});

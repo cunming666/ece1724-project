@@ -2,11 +2,12 @@
 
 Campus event check-in platform (Organizer / Staff / Attendee) built with React + Express + TypeScript.
 
-## Current Status (as of 2026-03-26)
+## Current Status (as of 2026-03-27)
 - The project is runnable end-to-end as an MVP.
 - Authentication, event registration, waitlist promotion, check-in APIs, and real-time dashboard are available.
 - Demo bootstrap accounts and data are available for direct presentation use.
 - Core requirements are mostly complete.
+- Registration/check-in paths now include transactional consistency guards for concurrency.
 - External API integration (OpenWeather) is available through the organizer control panel.
 
 ## Tech Stack
@@ -89,6 +90,22 @@ Required for full feature set:
 - `SPACES_SECRET_KEY`
 - `OPENWEATHER_API_KEY`
 
+Startup validation:
+- API server validates required environment variables on startup.
+- If required variables are missing or invalid, startup fails with a readable error message.
+
+## API Error Format
+Error responses now follow a structured format with request tracing:
+```json
+{
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "Forbidden"
+  },
+  "requestId": "<uuid>"
+}
+```
+
 ## URLs
 - Web: `http://localhost:5173`
 - API health: `http://localhost:4000/health`
@@ -140,14 +157,14 @@ After `npm run demo:bootstrap`:
 - [x] Event API (create, list, update, publish, details)
 - [x] Registration + waitlist promotion logic
 - [x] Ticket generation + QR/manual check-in API
-- [x] Duplicate check-in detection
+- [x] Duplicate check-in detection (DB unique guard + transaction fallback)
 - [x] Real-time dashboard refresh (Socket.IO)
 - [x] Organizer staff assignment flow
 - [x] CSV attendee import with summary results
 - [x] Attendee ticket wallet page
 - [x] Staff check-in page (QR + manual fallback)
 - [x] Demo bootstrap script
-- [x] API integration tests
+- [x] API integration tests (including RBAC regression matrix and check-in concurrency case)
 - [x] External API integration (OpenWeather card)
 
 ## Remaining Work
@@ -181,6 +198,9 @@ Run E2E browser tests (Playwright):
 npm run test:e2e
 ```
 
+Note:
+- In check-in concurrency tests, Prisma may log a unique constraint conflict for `successfulKey`. This is expected and is part of duplicate check-in protection.
+
 ## Deployment Information
 - Web URL: Pending
 - API URL: Pending
@@ -191,3 +211,4 @@ npm run test:e2e
 - Demo playbook: `docs/DEMO_PLAYBOOK.md`
 - Deployment runbook: `docs/DEPLOYMENT.md`
 - Test cases: `docs/TEST_CASES.md`
+

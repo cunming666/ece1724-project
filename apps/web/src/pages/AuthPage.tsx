@@ -1,9 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, FieldLabel, Input, Pill, Select } from "../components/ui";
 import { apiFetch, clearSessionToken, getSessionToken, setSessionToken } from "../lib/api";
-import { SESSION_QUERY_KEY } from "../lib/session";
+import { SESSION_QUERY_KEY, useSessionQuery } from "../lib/session";
 
 type AuthMode = "signin" | "signup";
 type NoticeTone = "success" | "error" | "info";
@@ -28,6 +28,16 @@ export function AuthPage() {
 
   const [mode, setMode] = useState<AuthMode>("signin");
   const [notice, setNotice] = useState<Notice | null>(null);
+  const hasCachedToken = useMemo(() => Boolean(getSessionToken()), []);
+  const existingSessionQuery = useSessionQuery(hasCachedToken);
+  const existingSession = existingSessionQuery.data;
+
+  useEffect(() => {
+    if (existingSessionQuery.isError && hasCachedToken) {
+      clearSessionToken();
+      queryClient.removeQueries({ queryKey: SESSION_QUERY_KEY });
+    }
+  }, [existingSessionQuery.isError, hasCachedToken, queryClient]);
 
   const [signInForm, setSignInForm] = useState({
     email: "",
@@ -40,12 +50,6 @@ export function AuthPage() {
     password: "",
     role: "ATTENDEE",
   });
-
-  useEffect(() => {
-    if (getSessionToken()) {
-      navigate("/panel", { replace: true });
-    }
-  }, [navigate]);
 
   const signIn = useMutation({
     mutationFn: () =>
@@ -116,47 +120,89 @@ export function AuthPage() {
     },
   });
 
+  const isBusy = signIn.isPending || signUp.isPending || quickDemo.isPending;
+
+  function switchMode(nextMode: AuthMode) {
+    if (isBusy) {
+      return;
+    }
+    setMode(nextMode);
+    setNotice(null);
+  }
+
   return (
-    <main className="app-shell mx-auto grid min-h-screen w-full max-w-7xl items-center gap-6 px-4 py-8 md:grid-cols-[1.1fr_0.9fr] md:px-8">
+    <main className="app-shell page-auth mx-auto grid min-h-screen w-full max-w-7xl items-center gap-6 px-4 py-8 md:grid-cols-[1.15fr_0.85fr] md:px-8">
       <div className="hero-glow" />
 
-      <section className="stagger-enter rounded-3xl bg-slate-900 p-7 text-white md:p-10">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-200">ECE1724 Project 3</p>
-        <h1 className="mt-3 font-heading text-4xl font-bold tracking-tight leading-tight">
-          Sign In First, Then Enter Control Panel
-        </h1>
-        <p className="mt-4 max-w-xl text-sm text-slate-200 md:text-base">
+      <section className="stagger-enter auth-hero-panel rounded-3xl border border-slate-200 bg-white p-7 text-slate-900 shadow-sm md:p-10">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-700">ECE1724 Project 3</p>
+        <h1 className="mt-3 font-heading text-4xl font-bold leading-tight tracking-tight">Sign In First, Then Enter Control Panel</h1>
+        <p className="mt-4 max-w-xl text-sm text-slate-600 md:text-base">
           Complete authentication first, then enter the event control panel. You can sign in with an existing account,
           register a new account, or click the quick demo button to seed demo data and sign in instantly.
         </p>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-            <p className="text-xs text-slate-200">Entry Flow</p>
-            <p className="mt-1 text-lg font-semibold">Auth ➜ Panel ➜ Dashboard</p>
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-600">Entry Flow</p>
+            <p className="mt-1 text-lg font-semibold">Auth - Panel - Dashboard</p>
           </div>
-          <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-            <p className="text-xs text-slate-200">Demo Support</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-600">Demo Support</p>
             <p className="mt-1 text-lg font-semibold">One-click Demo Seed</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-600">Access Model</p>
+            <p className="mt-1 text-lg font-semibold">Organizer / Staff / Attendee</p>
           </div>
         </div>
       </section>
 
-      <Card className="stagger-enter stagger-2" title="Authentication" subtitle="Use account login, register new account, or quick demo.">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Button variant={mode === "signin" ? "secondary" : "ghost"} onClick={() => setMode("signin")}>
-            Sign In
-          </Button>
-          <Button variant={mode === "signup" ? "secondary" : "ghost"} onClick={() => setMode("signup")}>
-            Sign Up
-          </Button>
-          <Button
-            className="ml-auto"
-            onClick={() => quickDemo.mutate()}
-            disabled={quickDemo.isPending}
+      <Card
+        className="stagger-enter stagger-2 auth-form-card"
+        title={mode === "signin" ? "Login" : "Create Account"}
+        subtitle={mode === "signin" ? "Use your account to continue to the control panel." : "Register first, then sign in to continue."}
+        headerRight={<Pill tone="brand">{mode === "signin" ? "Auth First" : "New User"}</Pill>}
+      >
+        <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+          <button
+            type="button"
+            className={`h-9 rounded-lg text-sm font-semibold transition ${mode === "signin" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+            onClick={() => switchMode("signin")}
           >
-            {quickDemo.isPending ? "Preparing Demo..." : "Quick Start Demo"}
+            Sign In
+          </button>
+          <button
+            type="button"
+            className={`h-9 rounded-lg text-sm font-semibold transition ${mode === "signup" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+            onClick={() => switchMode("signup")}
+          >
+            Register
+          </button>
+        </div>
+
+        {existingSession ? (
+          <Button
+            className="mb-3 w-full"
+            variant="ghost"
+            onClick={() => navigate("/panel")}
+            disabled={isBusy}
+          >
+            Continue as {existingSession.name} ({existingSession.role})
           </Button>
+        ) : null}
+
+        <Button className="auth-demo-btn mb-4 w-full" variant="secondary" onClick={() => quickDemo.mutate()} disabled={quickDemo.isPending}>
+          {quickDemo.isPending ? "Preparing Demo..." : "Quick Start Demo (Organizer)"}
+        </Button>
+
+        <p className="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+          Quick demo creates seeded data and signs in automatically. Use this for instant presentation flow.
+        </p>
+
+        <div className="mb-4 flex gap-2">
+          <Pill tone="brand">Role-based Entry</Pill>
+          <Pill tone="slate">Reusable Demo</Pill>
         </div>
 
         {notice ? (
@@ -174,13 +220,19 @@ export function AuthPage() {
         ) : null}
 
         {mode === "signin" ? (
-          <div className="space-y-3">
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              signIn.mutate();
+            }}
+          >
             <div>
               <FieldLabel>Email</FieldLabel>
               <Input
                 placeholder="name@mail.utoronto.ca"
                 value={signInForm.email}
-                onChange={(e) => setSignInForm((prev) => ({ ...prev, email: e.target.value }))}
+                onChange={(event) => setSignInForm((prev) => ({ ...prev, email: event.target.value }))}
               />
             </div>
             <div>
@@ -189,29 +241,35 @@ export function AuthPage() {
                 placeholder="Password"
                 type="password"
                 value={signInForm.password}
-                onChange={(e) => setSignInForm((prev) => ({ ...prev, password: e.target.value }))}
+                onChange={(event) => setSignInForm((prev) => ({ ...prev, password: event.target.value }))}
               />
             </div>
 
-            <Button onClick={() => signIn.mutate()} className="w-full" disabled={signIn.isPending}>
+            <Button type="submit" className="h-11 w-full" disabled={signIn.isPending}>
               {signIn.isPending ? "Signing In..." : "Sign In and Enter Control Panel"}
             </Button>
 
             <div className="rounded-xl bg-slate-100/80 px-3 py-2 text-xs text-slate-700">
-              Don't have an account?
-              <button className="ml-1 font-semibold text-brand-700 underline" onClick={() => setMode("signup")}>
-                Sign Up
+              Do not have an account?
+              <button type="button" className="ml-1 font-semibold text-brand-700 underline" onClick={() => switchMode("signup")}>
+                Register now
               </button>
             </div>
-          </div>
+          </form>
         ) : (
-          <div className="space-y-3">
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              signUp.mutate();
+            }}
+          >
             <div>
               <FieldLabel>Email</FieldLabel>
               <Input
                 placeholder="name@mail.utoronto.ca"
                 value={signUpForm.email}
-                onChange={(e) => setSignUpForm((prev) => ({ ...prev, email: e.target.value }))}
+                onChange={(event) => setSignUpForm((prev) => ({ ...prev, email: event.target.value }))}
               />
             </div>
             <div>
@@ -219,7 +277,7 @@ export function AuthPage() {
               <Input
                 placeholder="Full name"
                 value={signUpForm.name}
-                onChange={(e) => setSignUpForm((prev) => ({ ...prev, name: e.target.value }))}
+                onChange={(event) => setSignUpForm((prev) => ({ ...prev, name: event.target.value }))}
               />
             </div>
             <div>
@@ -228,36 +286,33 @@ export function AuthPage() {
                 placeholder="At least 6 characters"
                 type="password"
                 value={signUpForm.password}
-                onChange={(e) => setSignUpForm((prev) => ({ ...prev, password: e.target.value }))}
+                onChange={(event) => setSignUpForm((prev) => ({ ...prev, password: event.target.value }))}
               />
             </div>
             <div>
               <FieldLabel>Role</FieldLabel>
-              <Select value={signUpForm.role} onChange={(e) => setSignUpForm((prev) => ({ ...prev, role: e.target.value }))}>
+              <Select value={signUpForm.role} onChange={(event) => setSignUpForm((prev) => ({ ...prev, role: event.target.value }))}>
                 <option value="ATTENDEE">ATTENDEE</option>
                 <option value="STAFF">STAFF</option>
                 <option value="ORGANIZER">ORGANIZER</option>
               </Select>
             </div>
 
-            <Button onClick={() => signUp.mutate()} className="w-full" disabled={signUp.isPending}>
+            <Button type="submit" className="h-11 w-full" disabled={signUp.isPending}>
               {signUp.isPending ? "Signing Up..." : "Create Account"}
             </Button>
 
             <div className="rounded-xl bg-slate-100/80 px-3 py-2 text-xs text-slate-700">
               Already have an account?
-              <button className="ml-1 font-semibold text-brand-700 underline" onClick={() => setMode("signin")}>
+              <button type="button" className="ml-1 font-semibold text-brand-700 underline" onClick={() => switchMode("signin")}>
                 Back to Sign In
               </button>
             </div>
-          </div>
+          </form>
         )}
-
-        <div className="mt-4 flex gap-2">
-          <Pill tone="brand">Auth First</Pill>
-          <Pill tone="slate">Role-based Entry</Pill>
-        </div>
       </Card>
     </main>
   );
 }
+
+

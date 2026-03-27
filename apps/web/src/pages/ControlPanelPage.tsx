@@ -1,9 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Button, Card, FieldLabel, Input, Pill, Select } from "../components/ui";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Button, Card, FieldLabel, Input, Pill } from "../components/ui";
 import { apiFetch, clearSessionToken } from "../lib/api";
 import { SESSION_QUERY_KEY, useSessionQuery } from "../lib/session";
+import { getPanelNavEntries, panelSectionFromPath } from "../lib/panelNav";
+import { EventBoardPanel } from "../components/panel/EventBoardPanel";
+import { OrganizerPanel } from "../components/panel/OrganizerPanel";
+import { OverviewPanel } from "../components/panel/OverviewPanel";
+import { StaffPanel } from "../components/panel/StaffPanel";
 
 type EventItem = {
   id: string;
@@ -44,6 +49,8 @@ type Notice = {
   text: string;
 };
 
+type PanelView = "overview" | "organizer" | "staff" | "events";
+type OverviewRange = "TODAY" | "WEEK";
 type CsvImportIssue = {
   rowNumber: number;
   reason: string;
@@ -88,6 +95,22 @@ type FileDownloadResponse = {
   downloadUrl: string;
 };
 
+const OVERVIEW_RANGE_STORAGE_KEY = "panel-overview-range";
+
+function parseOverviewRange(value: string | null | undefined): OverviewRange | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "TODAY") {
+    return "TODAY";
+  }
+  if (normalized === "WEEK") {
+    return "WEEK";
+  }
+  return null;
+}
 type PresignUploadResponse = {
   file: {
     id: string;
@@ -119,24 +142,10 @@ function NoticeBanner({ notice }: { notice: Notice }) {
   );
 }
 
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      resolve(typeof reader.result === "string" ? reader.result : "");
-    };
-
-    reader.onerror = () => {
-      reject(new Error("Failed to read CSV file."));
-    };
-
-    reader.readAsText(file);
-  });
-}
-
 export function ControlPanelPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState<Notice | null>(null);
 
@@ -160,7 +169,19 @@ export function ControlPanelPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [changePasswordMessage, setChangePasswordMessage] = useState("");
-const [showWeatherCard, setShowWeatherCard] = useState(true);
+  const [overviewRange, setOverviewRange] = useState<OverviewRange>(() => {
+    const fromQuery = parseOverviewRange(new URLSearchParams(window.location.search).get("range"));
+    if (fromQuery) {
+      return fromQuery;
+    }
+
+    try {
+      return parseOverviewRange(window.localStorage.getItem(OVERVIEW_RANGE_STORAGE_KEY)) ?? "WEEK";
+    } catch {
+      return "WEEK";
+    }
+  });
+  const [showWeatherCard, setShowWeatherCard] = useState(true);
   const eventsQuery = useQuery({
     queryKey: ["events"],
     queryFn: () => apiFetch<{ items: EventItem[] }>("/api/events"),
@@ -246,6 +267,39 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
       cancelled = true;
     };
   }, [coverPreviewUrlsByEvent, eventsWithCover]);
+
+  useEffect(() => {
+    if (location.pathname !== "/panel") {
+      return;
+    }
+
+    const fromQuery = parseOverviewRange(searchParams.get("range"));
+    if (fromQuery) {
+      setOverviewRange((prev) => (prev === fromQuery ? prev : fromQuery));
+    }
+  }, [location.pathname, searchParams]);
+
+  useEffect(() => {
+    const serializedRange = overviewRange.toLowerCase();
+
+    try {
+      window.localStorage.setItem(OVERVIEW_RANGE_STORAGE_KEY, serializedRange);
+    } catch {
+      // Ignore storage errors in restricted environments.
+    }
+
+    if (location.pathname !== "/panel") {
+      return;
+    }
+
+    if (searchParams.get("range") === serializedRange) {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("range", serializedRange);
+    setSearchParams(nextParams, { replace: true });
+  }, [location.pathname, overviewRange, searchParams, setSearchParams]);
   const weatherQuery = useQuery({
     queryKey: ["weather-toronto"],
     queryFn: () => apiFetch<WeatherResponse>("/api/weather?city=Toronto"),
@@ -278,6 +332,103 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
       checkedInTickets,
     };
   }, [currentUser?.role, draftEvents.length, publishedEvents, walletTickets]);
+
+  const orderedPublishedEvents = useMemo(() => {
+    const now = Date.now();
+    return [...publishedEvents].sort((a, b) => {
+      const aTime = new Date(a.startTime).getTime();
+      const bTime = new Date(b.startTime).getTime();
+      const aUpcoming = aTime >= now;
+      const bUpcoming = bTime >= now;
+
+      if (aUpcoming !== bUpcoming) {
+        return aUpcoming ? -1 : 1;
+      }
+
+      return aTime - bTime;
+    });
+  }, [publishedEvents]);
+
+  const overviewRangeMeta = useMemo(() => {
+    const now = new Date();
+    const rangeStart = new Date(now);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(rangeStart);
+    rangeEnd.setDate(rangeEnd.getDate() + (overviewRange === "TODAY" ? 1 : 7));
+    return {
+      label: overviewRange === "TODAY" ? "Today" : "This Week",
+      startMs: rangeStart.getTime(),
+      endMs: rangeEnd.getTime(),
+      nowMs: now.getTime(),
+    };
+  }, [overviewRange]);
+
+  const overviewScopedEvents = useMemo(() => {
+    return orderedPublishedEvents.filter((event) => {
+      const eventTime = new Date(event.startTime).getTime();
+      return eventTime >= overviewRangeMeta.startMs && eventTime < overviewRangeMeta.endMs;
+    });
+  }, [orderedPublishedEvents, overviewRangeMeta.endMs, overviewRangeMeta.startMs]);
+
+  const overviewUpcomingEvents = useMemo(() => {
+    return overviewScopedEvents.filter((event) => new Date(event.startTime).getTime() >= overviewRangeMeta.nowMs);
+  }, [overviewScopedEvents, overviewRangeMeta.nowMs]);
+
+  const nextUpcomingEvent = overviewUpcomingEvents[0] ?? null;
+
+  const overviewPreviousScopedCount = useMemo(() => {
+    const rangeDurationMs = overviewRangeMeta.endMs - overviewRangeMeta.startMs;
+    const previousStartMs = overviewRangeMeta.startMs - rangeDurationMs;
+    const previousEndMs = overviewRangeMeta.startMs;
+
+    return orderedPublishedEvents.filter((event) => {
+      const eventTime = new Date(event.startTime).getTime();
+      return eventTime >= previousStartMs && eventTime < previousEndMs;
+    }).length;
+  }, [orderedPublishedEvents, overviewRangeMeta.endMs, overviewRangeMeta.startMs]);
+
+  const overviewRangeDelta = overviewScopedEvents.length - overviewPreviousScopedCount;
+  const upcomingCoveragePct = overviewScopedEvents.length
+    ? Math.round((overviewUpcomingEvents.length / overviewScopedEvents.length) * 100)
+    : 0;
+
+  const nextEventCountdownLabel = useMemo(() => {
+    if (!nextUpcomingEvent) {
+      return "No event in the selected range.";
+    }
+
+    const diffMs = new Date(nextUpcomingEvent.startTime).getTime() - overviewRangeMeta.nowMs;
+    if (diffMs <= 0) {
+      return "Event is in progress now.";
+    }
+
+    const minutes = Math.floor(diffMs / (1000 * 60));
+    if (minutes < 60) {
+      return `Starts in ${minutes} min`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+      return `Starts in ${hours}h ${minutes % 60}m`;
+    }
+
+    const days = Math.floor(hours / 24);
+    return `Starts in ${days} day${days === 1 ? "" : "s"}`;
+  }, [nextUpcomingEvent, overviewRangeMeta.nowMs]);
+
+  const overviewBars = useMemo(() => {
+    const rows = [
+      { label: overviewRangeMeta.label, value: overviewScopedEvents.length },
+      { label: "Upcoming", value: overviewUpcomingEvents.length },
+      { label: "Drafts", value: stats.drafts },
+      { label: "Coverage", value: upcomingCoveragePct },
+    ];
+    const max = Math.max(...rows.map((row) => row.value), 1);
+    return rows.map((row) => ({
+      ...row,
+      heightPct: Math.max(16, Math.round((row.value / max) * 100)),
+    }));
+  }, [overviewRangeMeta.label, overviewScopedEvents.length, overviewUpcomingEvents.length, stats.drafts, upcomingCoveragePct]);
 
   const createEvent = useMutation({
     mutationFn: async () => {
@@ -547,6 +698,51 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
       setNotice({ tone: "error", text: err.message });
     },
   });
+
+  const viewMode: PanelView = location.pathname === "/panel/organizer"
+    ? "organizer"
+    : location.pathname === "/panel/staff"
+      ? "staff"
+      : location.pathname === "/panel/events"
+        ? "events"
+        : "overview";
+
+  const viewLabel =
+    viewMode === "organizer"
+      ? "Organizer Studio"
+      : viewMode === "staff"
+        ? "Staff Console"
+        : viewMode === "events"
+          ? "Published Event Board"
+          : "Overview";
+
+  const moduleDescription =
+    viewMode === "organizer"
+      ? "Build and publish events, assign staff, and handle CSV attendee imports."
+      : viewMode === "staff"
+        ? "Operate check-in workflows and monitor event status in real time."
+        : viewMode === "events"
+          ? "Browse all published events and jump into dashboard/check-in operations."
+          : "Use this overview to access your role-specific workflows quickly.";
+
+  const isEventsMode = viewMode === "events";
+  const showRoleWorkspace =
+    viewMode === "overview" ||
+    (currentUser?.role === "ORGANIZER" && viewMode === "organizer") ||
+    ((currentUser?.role === "ORGANIZER" || currentUser?.role === "STAFF") && viewMode === "staff");
+  const showFallbackModuleCard = !isEventsMode && !showRoleWorkspace;
+  const mainGridClass = isEventsMode ? "mt-6 grid gap-5" : "mt-6 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]";
+  const showAccountCard = !isEventsMode;
+  const boardEvents = viewMode === "overview" ? overviewScopedEvents.slice(0, 4) : orderedPublishedEvents;
+  const quickNavItems = getPanelNavEntries(currentUser?.role);
+  const activePanelSection = panelSectionFromPath(location.pathname);
+
+  const quickNavClass = (active: boolean) =>
+    `rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+      active
+        ? "border-brand-400 bg-brand-50 text-brand-700 shadow-soft"
+        : "border-slate-200 bg-white text-slate-800 hover:border-brand-300 hover:text-brand-700"
+    }`;
   const signOut = useMutation({
     mutationFn: () => apiFetch("/auth/sign-out", { method: "POST" }),
     onSuccess: () => {
@@ -560,10 +756,10 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
   });
 
   return (
-    <main className="app-shell mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
+    <main className="app-shell page-saas mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
       <div className="hero-glow" />
 
-      <section className="stagger-enter relative overflow-hidden rounded-3xl bg-slate-900 p-6 text-white md:p-8">
+      <section className="stagger-enter relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-6 text-slate-900 shadow-sm md:p-8">
         <div
           className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-brand-400/30 blur-3xl"
           style={{ pointerEvents: "none" }}
@@ -577,9 +773,9 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
 
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-200">Control Panel</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-600">Control Panel</p>
             <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">Event Operations Workspace</h1>
-            <p className="mt-2 text-sm text-slate-200">
+            <p className="mt-2 text-sm text-slate-600">
               Logged in as {currentUser?.name ?? "Unknown"} ({stats.role})
             </p>
           </div>
@@ -592,20 +788,20 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-4">
-          <div className="rounded-2xl border border-white/15 bg-white/10 p-3">
-            <p className="text-xs text-slate-200">Published Events</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs text-slate-600">Published Events</p>
             <p className="mt-1 text-2xl font-bold">{stats.published}</p>
           </div>
-          <div className="rounded-2xl border border-white/15 bg-white/10 p-3">
-            <p className="text-xs text-slate-200">Upcoming Events</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs text-slate-600">Upcoming Events</p>
             <p className="mt-1 text-2xl font-bold">{stats.upcoming}</p>
           </div>
-          <div className="rounded-2xl border border-white/15 bg-white/10 p-3">
-            <p className="text-xs text-slate-200">Role</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs text-slate-600">Role</p>
             <p className="mt-1 text-xl font-bold">{stats.role}</p>
           </div>
-          <div className="rounded-2xl border border-white/15 bg-white/10 p-3">
-            <p className="text-xs text-slate-200">Personal Workspace</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs text-slate-600">Personal Workspace</p>
             <p className="mt-1 text-xl font-bold">
               {currentUser?.role === "ORGANIZER"
                 ? `${stats.drafts} draft${stats.drafts === 1 ? "" : "s"}`
@@ -617,550 +813,153 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
         </div>
       </section>
 
+      <section className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5" data-testid="panel-quick-nav">
+        {quickNavItems.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={quickNavClass(activePanelSection === item.section)}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </section>
+
+      <p className="mt-4 text-sm font-semibold text-slate-700">Current module: {viewLabel}</p>
+      <p className="mt-1 text-sm text-slate-500">{moduleDescription}</p>
+
       {notice ? <NoticeBanner notice={notice} /> : null}
 
-      <section className="mt-6 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="space-y-5">
-          {currentUser?.role === "ORGANIZER" ? (
-            <>
+      <section className={mainGridClass}>
+        {!isEventsMode ? (
+          <div className="space-y-5">
+            {showFallbackModuleCard ? (
               <Card
                 className="stagger-enter stagger-2"
-                title="Create Event"
-                subtitle="Organizer creates a draft event first, then publishes it from My Event Studio."
-                headerRight={<Pill tone="warm">Organizer Studio</Pill>}
-              >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <FieldLabel>Event Title</FieldLabel>
-                    <Input
-                      placeholder="ECE1724 Demo Day"
-                      value={eventForm.title}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, title: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>Location</FieldLabel>
-                    <Input
-                      placeholder="Bahen Centre Room 1130"
-                      value={eventForm.location}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, location: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>Start Time</FieldLabel>
-                    <Input
-                      type="datetime-local"
-                      value={eventForm.startTime}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, startTime: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>Capacity</FieldLabel>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={String(eventForm.capacity)}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, capacity: Number(e.target.value) }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <Button onClick={() => createEvent.mutate()} disabled={createEvent.isPending}>
-                    {createEvent.isPending ? "Creating..." : "Create Draft Event"}
-                  </Button>
-                  <p className="text-xs text-slate-600">Drafts appear below immediately and can be published without leaving the UI.</p>
-                </div>
-              </Card>
-
-              <Card
-                className="stagger-enter stagger-3"
-                title="My Event Studio"
-                subtitle="Review your draft events, publish them, launch live dashboards, or open the check-in workstation."
-                headerRight={<Pill tone="brand">Publish in UI</Pill>}
-              >
-                {myEventsQuery.isLoading ? (
-                  <p className="rounded-xl bg-slate-100/80 px-3 py-2 text-sm text-slate-600">Loading your events...</p>
-                ) : null}
-
-                {myEventsQuery.isError ? (
-                  <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{(myEventsQuery.error as Error).message}</p>
-                ) : null}
-
-                <div className="space-y-4">
-                  <div>
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <h3 className="font-heading text-lg font-semibold text-slate-900">Draft Events</h3>
-                      <Pill tone="warm">{draftEvents.length}</Pill>
-                    </div>
-                    {draftEvents.length ? (
-                      <div className="space-y-3">
-                        {draftEvents.map((event) => (
-                          <article key={event.id} className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <h4 className="font-semibold text-slate-900">{event.title}</h4>
-                                <p className="mt-1 text-sm text-slate-600">{event.location}</p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {new Date(event.startTime).toLocaleString()} | capacity {event.capacity}
-                                </p>
-                              </div>
-                              <Pill tone="warm">{event.status}</Pill>
-                            </div>
-                            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                              <FieldLabel>Event Cover</FieldLabel>
-                              <Input
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0] ?? null;
-                                  setCoverFilesByEvent((prev) => ({
-                                    ...prev,
-                                    [event.id]: file,
-                                  }));
-                                }}
-                              />
-                              <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <Button
-                                  variant="secondary"
-                                  onClick={() => uploadEventCover.mutate(event.id)}
-                                  disabled={!coverFilesByEvent[event.id] || (uploadEventCover.isPending && uploadEventCover.variables === event.id)}
-                                >
-                                  {uploadEventCover.isPending && uploadEventCover.variables === event.id ? "Uploading..." : "Upload Cover"}
-                                </Button>
-                                <span className="text-xs text-slate-600">
-                                  {event.coverFileId ? "Cover attached" : "No cover uploaded yet"}
-                                </span>
-                              </div>
-                              {coverPreviewUrlsByEvent[event.id] ? (
-                                <img
-                                  src={coverPreviewUrlsByEvent[event.id]}
-                                  alt={`${event.title} cover`}
-                                  className="mt-3 h-28 w-full rounded-xl object-cover"
-                                />
-                              ) : null}
-                            </div>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              <Button
-                                onClick={() => publishEvent.mutate(event.id)}
-                                disabled={publishEvent.isPending && publishEvent.variables === event.id}
-                              >
-                                {publishEvent.isPending && publishEvent.variables === event.id ? "Publishing..." : "Publish Event"}
-                              </Button>
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-6 text-sm text-slate-600">
-                        No drafts yet. Create an event above to start your organizer workflow.
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <h3 className="font-heading text-lg font-semibold text-slate-900">Published by You</h3>
-                      <Pill tone="slate">{myPublishedEvents.length}</Pill>
-                    </div>
-                    {myPublishedEvents.length ? (
-                      <div className="space-y-3">
-                        {myPublishedEvents.map((event) => (
-                          <article key={event.id} className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <h4 className="font-semibold text-slate-900">{event.title}</h4>
-                                <p className="mt-1 text-sm text-slate-600">{event.location}</p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {new Date(event.startTime).toLocaleString()} | capacity {event.capacity}
-                                </p>
-                              </div>
-                              <Pill tone="brand">{event.status}</Pill>
-                            </div>
-                            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                              <FieldLabel>Event Cover</FieldLabel>
-                              <Input
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0] ?? null;
-                                  setCoverFilesByEvent((prev) => ({
-                                    ...prev,
-                                    [event.id]: file,
-                                  }));
-                                }}
-                              />
-                              <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <Button
-                                  variant="secondary"
-                                  onClick={() => uploadEventCover.mutate(event.id)}
-                                  disabled={!coverFilesByEvent[event.id] || (uploadEventCover.isPending && uploadEventCover.variables === event.id)}
-                                >
-                                  {uploadEventCover.isPending && uploadEventCover.variables === event.id ? "Uploading..." : "Upload Cover"}
-                                </Button>
-                                <span className="text-xs text-slate-600">
-                                  {event.coverFileId ? "Cover attached" : "No cover uploaded yet"}
-                                </span>
-                              </div>
-                              {coverPreviewUrlsByEvent[event.id] ? (
-                                <img
-                                  src={coverPreviewUrlsByEvent[event.id]}
-                                  alt={`${event.title} cover`}
-                                  className="mt-3 h-28 w-full rounded-xl object-cover"
-                                />
-                              ) : null}
-                            </div>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              <Link
-                                to={`/panel/events/${event.id}/dashboard`}
-                                className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white/70 px-4 text-sm font-semibold text-slate-800 transition hover:bg-white"
-                              >
-                                Open Dashboard
-                              </Link>
-                              <Link
-                                to={`/panel/events/${event.id}/checkin`}
-                                className="inline-flex h-10 items-center justify-center rounded-xl bg-brand-700 px-4 text-sm font-semibold text-white transition hover:bg-brand-800"
-                              >
-                                Open Check-in
-                              </Link>
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-6 text-sm text-slate-600">
-                        Publish a draft to make it appear in the shared board.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </Card>
-
-              <Card
-                className="stagger-enter stagger-4"
-                title="Staff Assignment"
-                subtitle="Assign staff accounts to one of your published events by email."
-                headerRight={<Pill tone="brand">P0-5</Pill>}
-              >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <FieldLabel>Select Published Event</FieldLabel>
-                    <Select value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)}>
-                      <option value="">Choose one of your published events</option>
-                      {myPublishedEvents.map((event) => (
-                        <option key={event.id} value={event.id}>
-                          {event.title} ({event.status})
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-
-                  <div>
-                    <FieldLabel>Staff Email</FieldLabel>
-                    <Input placeholder="staff@test.com" value={staffEmail} onChange={(e) => setStaffEmail(e.target.value)} />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <Button onClick={() => assignStaff.mutate()} disabled={assignStaff.isPending || !selectedEventId}>
-                    {assignStaff.isPending ? "Assigning..." : "Assign Staff"}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => staffAssignmentsQuery.refetch()}
-                    disabled={!selectedEventId || staffAssignmentsQuery.isFetching}
-                  >
-                    {staffAssignmentsQuery.isFetching ? "Refreshing..." : "Refresh Staff List"}
-                  </Button>
-                </div>
-
-                <div className="mt-5 space-y-3">
-                  <p className="text-sm font-semibold text-slate-800">Assigned Staff</p>
-
-                  {!selectedEventId ? (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-                      Publish one of your events first, then select it here to manage staff assignments.
-                    </div>
-                  ) : staffAssignmentsQuery.isLoading ? (
-                    <div className="rounded-2xl bg-slate-100/80 px-4 py-5 text-sm text-slate-600">Loading staff...</div>
-                  ) : staffAssignmentsQuery.isError ? (
-                    <div className="rounded-2xl bg-rose-50 px-4 py-5 text-sm text-rose-700">Failed to load staff assignments.</div>
-                  ) : staffAssignmentsQuery.data?.items.length ? (
-                    <div className="space-y-3">
-                      {staffAssignmentsQuery.data.items.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3"
-                        >
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">{item.user?.name ?? "Unknown Staff"}</p>
-                            <p className="text-xs text-slate-600">{item.user?.email ?? "unknown@example.com"}</p>
-                          </div>
-                          <Button variant="danger" onClick={() => removeStaff.mutate(item.userId)} disabled={removeStaff.isPending}>
-                            {removeStaff.isPending ? "Removing..." : "Remove"}
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-                      No staff assigned to this event yet.
-                    </div>
-                  )}
-                </div>
-              </Card>
-
-              <Card
-                className="stagger-enter stagger-5"
-                title="CSV Attendee Import"
-                subtitle="Upload a simple CSV file with name,email rows for one of your published events."
-                headerRight={<Pill tone="brand">CSV Import</Pill>}
-              >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <FieldLabel>Select Published Event</FieldLabel>
-                    <Select
-                      value={selectedEventId}
-                      onChange={(e) => {
-                        setSelectedEventId(e.target.value);
-                        setCsvImportResult(null);
-                      }}
-                    >
-                      <option value="">Choose one of your published events</option>
-                      {myPublishedEvents.map((event) => (
-                        <option key={event.id} value={event.id}>
-                          {event.title} ({event.status})
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-
-                  <div>
-                    <FieldLabel>CSV File</FieldLabel>
-<Input
-  type="file"
-  accept=".csv,text/csv"
-  onChange={(e) => {
-    const file = e.target.files?.[0] ?? null;
-    setCsvFile(file);
-  }}
-/>
-                  </div>
-                </div>
-
-                               <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span>Expected format:</span>
-                    <a
-                      href="/sample-attendees.csv"
-                      download
-                      className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-brand-300 hover:text-brand-700"
-                    >
-                      Download Sample CSV
-                    </a>
-                  </div>
-                  <div className="mt-2 whitespace-pre-wrap rounded-xl bg-white px-3 py-3 font-mono text-xs text-slate-700">
-                    {"name,email\nAlice,alice@example.com\nBob,bob@example.com"}
-                  </div>
-                  <p className="mt-3 text-xs text-amber-700">
-                    Imported new users will be created with the default password <span className="font-semibold">pass1234</span>.
-                    Please remind new users to sign in and change their password as soon as possible.
-                  </p>
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <Button onClick={() => importCsv.mutate()} disabled={importCsv.isPending || !selectedEventId || !csvFile}>
-                    {importCsv.isPending ? "Importing..." : "Import CSV"}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setCsvFile(null);
-                      setCsvImportResult(null);
-                    }}
-                    disabled={importCsv.isPending}
-                  >
-                    Clear
-                  </Button>
-                  <p className="text-xs text-slate-600">{csvFile ? `Selected: ${csvFile.name}` : "No file selected yet."}</p>
-                </div>
-
-                {csvImportResult ? (
-                  <div className="mt-5 space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                        <p className="text-xs text-slate-500">Total Rows</p>
-                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.totalRows}</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                        <p className="text-xs text-slate-500">Imported</p>
-                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.importedRows}</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                        <p className="text-xs text-slate-500">Invalid</p>
-                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.invalidRows}</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                        <p className="text-xs text-slate-500">Duplicates</p>
-                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.duplicateRows}</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                        <p className="text-xs text-slate-500">Confirmed</p>
-                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.confirmedRows}</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                        <p className="text-xs text-slate-500">Waitlisted</p>
-                        <p className="mt-1 text-xl font-bold text-slate-900">{csvImportResult.summary.waitlistedRows}</p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                      Import finished: {csvImportResult.summary.importedRows} row(s) imported,{" "}
-                      {csvImportResult.summary.duplicateRows} duplicate row(s),{" "}
-                      {csvImportResult.summary.invalidRows} invalid row(s).
-                    </div>
-
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">Import Issues</p>
-                      {csvImportResult.issues.length ? (
-                        <div className="mt-3 space-y-2">
-                          {csvImportResult.issues.map((issue, index) => (
-                            <div
-                              key={`${issue.rowNumber}-${issue.reason}-${index}`}
-                              className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-                            >
-                              Row {issue.rowNumber}: {issue.reason}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                          No issues found in this CSV import.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="mt-5 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-slate-800">Recent Import Jobs</p>
-                    <Button
-                      variant="secondary"
-                      onClick={() => importHistoryQuery.refetch()}
-                      disabled={!selectedEventId || importHistoryQuery.isFetching}
-                    >
-                      {importHistoryQuery.isFetching ? "Refreshing..." : "Refresh History"}
-                    </Button>
-                  </div>
-
-                  {!selectedEventId ? (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-                      Select a published event to view CSV import history.
-                    </div>
-                  ) : importHistoryQuery.isLoading ? (
-                    <div className="rounded-2xl bg-slate-100/80 px-4 py-4 text-sm text-slate-600">Loading import history...</div>
-                  ) : importHistoryQuery.isError ? (
-                    <div className="rounded-2xl bg-rose-50 px-4 py-4 text-sm text-rose-700">Failed to load import history.</div>
-                  ) : importHistoryQuery.data?.items.length ? (
-                    <div className="space-y-3">
-                      {importHistoryQuery.data.items.map((job) => (
-                        <article key={job.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-sm font-semibold text-slate-900">{new Date(job.createdAt).toLocaleString()}</p>
-                            <Pill tone="slate">{job.status}</Pill>
-                          </div>
-                          <p className="mt-1 text-xs text-slate-500">File: {job.fileId}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Finished: {job.finishedAt ? new Date(job.finishedAt).toLocaleString() : "In progress"}
-                          </p>
-                          {job.summary ? (
-                            <p className="mt-2 text-xs text-slate-700">
-                              Total {job.summary.totalRows} | Imported {job.summary.importedRows} | Invalid {job.summary.invalidRows} |
-                              Duplicates {job.summary.duplicateRows} | Confirmed {job.summary.confirmedRows} | Waitlisted {job.summary.waitlistedRows}
-                            </p>
-                          ) : (
-                            <p className="mt-2 text-xs text-slate-500">Summary unavailable for this job.</p>
-                          )}
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-                      No import jobs yet for this event.
-                    </div>
-                  )}
-                </div>
-              </Card>
-            </>
-          ) : currentUser?.role === "ATTENDEE" ? (
-            <>
-              <Card
-                className="stagger-enter stagger-2"
-                title="My Ticket Wallet"
-                subtitle="Open your QR ticket page anytime after a confirmed registration."
-                headerRight={<Pill tone="brand">Attendee</Pill>}
-              >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Active Tickets</p>
-                    <p className="mt-2 text-3xl font-bold text-slate-900">{stats.activeTickets}</p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Checked In</p>
-                    <p className="mt-2 text-3xl font-bold text-slate-900">{stats.checkedInTickets}</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Link
-                    to="/panel/tickets"
-                    className="inline-flex h-10 items-center justify-center rounded-xl bg-brand-700 px-4 text-sm font-semibold text-white transition hover:bg-brand-800"
-                  >
-                    Open My Tickets
-                  </Link>
-                  <p className="self-center text-xs text-slate-600">Your QR code page is now available directly in the frontend.</p>
-                </div>
-              </Card>
-
-              <Card className="stagger-enter stagger-3" title="Project Workflow" subtitle="Recommended attendee flow for your team demo.">
-                <ol className="space-y-2 text-sm text-slate-700">
-                  <li>1. Sign in as attendee and open the published event board.</li>
-                  <li>2. Register for an event.</li>
-                  <li>3. Open My Tickets and show the QR code to staff.</li>
-                  <li>4. Refresh dashboard from organizer or staff account to confirm the live update.</li>
-                </ol>
-              </Card>
-            </>
-          ) : (
-            <>
-              <Card
-                className="stagger-enter stagger-2"
-                title="Staff Operations"
-                subtitle="Staff users can launch the live check-in workstation or open dashboards for events they support."
-                headerRight={<Pill tone="slate">Staff</Pill>}
+                title="Module Access"
+                subtitle="This module is optimized for a different role."
+                headerRight={<Pill tone="warm">Switch Module</Pill>}
               >
                 <p className="text-sm text-slate-700">
-                  Staff accounts cannot create events, but they can open assigned event dashboards and use the new check-in workstation for QR or manual entry.
+                  Your current role is <span className="font-semibold">{currentUser?.role ?? "UNKNOWN"}</span>. Use the quick links below to open modules available to your account.
                 </p>
-                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  Use the <span className="font-semibold text-slate-900">Open Check-in</span> button in the published event board to launch the staff workstation for a live event.
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Link
+                    to="/panel"
+                    className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
+                  >
+                    Back to Overview
+                  </Link>
+                  <Link
+                    to="/panel/events"
+                    className="inline-flex h-10 items-center justify-center rounded-xl bg-brand-700 px-4 text-sm font-semibold text-white transition hover:bg-brand-800"
+                  >
+                    Open Event Board
+                  </Link>
                 </div>
               </Card>
+                        ) : viewMode === "overview" ? (
+              <OverviewPanel
+                currentUserRole={currentUser?.role}
+                overviewRange={overviewRange}
+                onChangeRange={setOverviewRange}
+                overviewRangeMeta={overviewRangeMeta}
+                overviewScopedEvents={overviewScopedEvents}
+                overviewUpcomingEvents={overviewUpcomingEvents}
+                overviewRangeDelta={overviewRangeDelta}
+                upcomingCoveragePct={upcomingCoveragePct}
+                nextUpcomingEvent={nextUpcomingEvent}
+                nextEventCountdownLabel={nextEventCountdownLabel}
+                overviewBars={overviewBars}
+                stats={stats}
+              />
+                        ) : currentUser?.role === "ORGANIZER" && viewMode === "organizer" ? (
+              <OrganizerPanel
+                eventForm={eventForm}
+                onEventFormChange={(patch) => setEventForm((prev) => ({ ...prev, ...patch }))}
+                createEventState={{
+                  isPending: createEvent.isPending,
+                  onCreate: () => createEvent.mutate(),
+                }}
+                myEventsState={{
+                  isLoading: myEventsQuery.isLoading,
+                  isError: myEventsQuery.isError,
+                  errorMessage: myEventsQuery.error instanceof Error ? myEventsQuery.error.message : "Failed to load events.",
+                }}
+                draftEvents={draftEvents}
+                myPublishedEvents={myPublishedEvents}
+                coverFilesByEvent={coverFilesByEvent}
+                coverPreviewUrlsByEvent={coverPreviewUrlsByEvent}
+                onCoverFileChange={(eventId, file) => {
+                  setCoverFilesByEvent((prev) => ({
+                    ...prev,
+                    [eventId]: file,
+                  }));
+                }}
+                uploadEventCoverState={{
+                  isPending: uploadEventCover.isPending,
+                  variables: uploadEventCover.variables,
+                  onUpload: (eventId) => uploadEventCover.mutate(eventId),
+                }}
+                publishEventState={{
+                  isPending: publishEvent.isPending,
+                  variables: publishEvent.variables,
+                  onPublish: (eventId) => publishEvent.mutate(eventId),
+                }}
+                selectedEventId={selectedEventId}
+                onSelectEventId={setSelectedEventId}
+                staffEmail={staffEmail}
+                onStaffEmailChange={setStaffEmail}
+                assignStaffState={{
+                  isPending: assignStaff.isPending,
+                  onAssign: () => assignStaff.mutate(),
+                }}
+                staffAssignmentsState={{
+                  isLoading: staffAssignmentsQuery.isLoading,
+                  isError: staffAssignmentsQuery.isError,
+                  isFetching: staffAssignmentsQuery.isFetching,
+                  items: staffAssignmentsQuery.data?.items ?? [],
+                  onRefresh: () => {
+                    void staffAssignmentsQuery.refetch();
+                  },
+                }}
+                removeStaffState={{
+                  isPending: removeStaff.isPending,
+                  onRemove: (userId) => removeStaff.mutate(userId),
+                }}
+                csvState={{
+                  file: csvFile,
+                  result: csvImportResult,
+                  onFileChange: setCsvFile,
+                  onClear: () => {
+                    setCsvFile(null);
+                    setCsvImportResult(null);
+                  },
+                  onClearResult: () => setCsvImportResult(null),
+                }}
+                importCsvState={{
+                  isPending: importCsv.isPending,
+                  onImport: () => importCsv.mutate(),
+                }}
+                importHistoryState={{
+                  isLoading: importHistoryQuery.isLoading,
+                  isError: importHistoryQuery.isError,
+                  isFetching: importHistoryQuery.isFetching,
+                  items: importHistoryQuery.data?.items ?? [],
+                  onRefresh: () => {
+                    void importHistoryQuery.refetch();
+                  },
+                }}
+              />
+            ) : (
+              <StaffPanel currentUserRole={currentUser?.role} stats={stats} />
+            )} 
+          </div>
+        ) : null}
 
-              <Card className="stagger-enter stagger-3" title="Project Workflow" subtitle="Recommended staff flow for your team demo.">
-                <ol className="space-y-2 text-sm text-slate-700">
-                  <li>1. Sign in as staff.</li>
-                  <li>2. Open the dashboard for an assigned event.</li>
-                  <li>3. Open the Check-in page for the target event and scan attendee QR codes or type ticket IDs manually.</li>
-                  <li>4. Use the dashboard refresh button to confirm live attendance changes.</li>
-                </ol>
-              </Card>
-            </>
-          )}
-        </div>
-
-                <Card
+        <div className={showAccountCard ? "space-y-5" : "space-y-0"}>
+          {showAccountCard ? (
+            <Card
           className="stagger-enter stagger-6"
           title="Change Password"
           subtitle="Update your account password after signing in."
@@ -1205,94 +1004,28 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
             {changePasswordMessage ? <p className="text-sm text-slate-600">{changePasswordMessage}</p> : null}
           </div>
         </Card>
-
-        <Card
-          className="stagger-enter stagger-6"
-          title="Published Event Board"
-          subtitle="Browse public events, register as attendee, or open dashboards for operations roles."
-          headerRight={<Pill tone="slate">Live Feed</Pill>}
-        >
-          {eventsQuery.isLoading ? (
-            <p className="rounded-xl bg-slate-100/80 px-3 py-2 text-sm text-slate-600">Loading events...</p>
           ) : null}
 
-          {eventsQuery.isError ? (
-            <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">Failed to load events.</p>
-          ) : null}
-
-          <div className="space-y-3">
-            {publishedEvents.length ? (
-              publishedEvents.map((event) => (
-                <article
-                  key={event.id}
-                  className="rounded-2xl border border-slate-200/80 bg-white/70 p-4 transition hover:-translate-y-0.5 hover:shadow-panel"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-heading text-lg font-semibold text-slate-900">{event.title}</h3>
-                      <p className="mt-1 text-sm text-slate-600">{event.location}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {new Date(event.startTime).toLocaleString()} | capacity {event.capacity}
-                      </p>
-                    </div>
-                    <Pill tone="brand">{event.status}</Pill>
-                  </div>
-
-                  {coverPreviewUrlsByEvent[event.id] ? (
-                    <div className="mt-3 overflow-hidden rounded-xl border border-slate-200">
-                      <img
-                        src={coverPreviewUrlsByEvent[event.id]}
-                        alt={`${event.title} cover`}
-                        className="h-36 w-full object-cover"
-                      />
-                    </div>
-                  ) : event.coverFileId ? (
-                    <p className="mt-3 text-xs text-slate-500">Cover image is available for this event.</p>
-                  ) : null}
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    {currentUser?.role === "ATTENDEE" ? (
-                      <Button onClick={() => register.mutate(event.id)} disabled={register.isPending}>
-                        {register.isPending && register.variables === event.id ? "Submitting..." : "Register"}
-                      </Button>
-                    ) : null}
-
-                    {(currentUser?.role === "ORGANIZER" || currentUser?.role === "STAFF") && (
-                      <>
-                        <Link
-                          className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
-                          to={`/panel/events/${event.id}/dashboard`}
-                        >
-                          Open Dashboard
-                        </Link>
-                        <Link
-                          className="inline-flex h-10 items-center justify-center rounded-xl bg-brand-700 px-4 text-sm font-semibold text-white transition hover:bg-brand-800"
-                          to={`/panel/events/${event.id}/checkin`}
-                        >
-                          Open Check-in
-                        </Link>
-                      </>
-                    )}
-
-                    {currentUser?.role === "ATTENDEE" ? (
-                      <Link
-                        to="/panel/tickets"
-                        className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
-                      >
-                        My Tickets
-                      </Link>
-                    ) : null}
-                  </div>
-                </article>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-6 text-center text-sm text-slate-600">
-                No published events yet. Publish one and it will appear here.
-              </div>
-            )}
-          </div>
-        </Card>
+        <div className={showAccountCard ? "mt-5" : ""}>
+        <EventBoardPanel
+          eventsLoading={eventsQuery.isLoading}
+          eventsError={eventsQuery.isError}
+          boardEvents={boardEvents}
+          coverPreviewUrlsByEvent={coverPreviewUrlsByEvent}
+          currentUserRole={currentUser?.role}
+          registerState={{
+            isPending: register.isPending,
+            variables: register.variables,
+            mutate: (eventId: string) => register.mutate(eventId),
+          }}
+          isOverviewMode={viewMode === "overview"}
+          overviewRangeLabel={overviewRangeMeta.label}
+          showViewAll={viewMode === "overview" && orderedPublishedEvents.length > boardEvents.length}
+        />
+        </div>
+        </div>
       </section>
-      {showWeatherCard ? (
+      {showWeatherCard && (viewMode === "overview" || viewMode === "events") ? (
         <div className="fixed bottom-5 right-5 z-50 w-[280px] animate-[fadeIn_0.4s_ease-out] rounded-2xl border border-sky-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -1335,3 +1068,22 @@ const [showWeatherCard, setShowWeatherCard] = useState(true);
     </main>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,7 +1,8 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
-export interface ApiError {
-  error: string;
+export interface ApiErrorEnvelope {
+  error?: string | { code?: string; message?: string };
+  requestId?: string;
 }
 
 const SESSION_TOKEN_KEY = "sessionToken";
@@ -27,6 +28,19 @@ function buildAuthorizedHeaders(init?: RequestInit): Headers {
   return headers;
 }
 
+function getErrorMessage(payload: ApiErrorEnvelope): string {
+  if (typeof payload.error === "string" && payload.error.trim()) {
+    return payload.error;
+  }
+
+  if (payload.error && typeof payload.error === "object" && typeof payload.error.message === "string" && payload.error.message.trim()) {
+    const requestIdSuffix = payload.requestId ? ` (requestId: ${payload.requestId})` : "";
+    return `${payload.error.message}${requestIdSuffix}`;
+  }
+
+  return "Request failed";
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = buildAuthorizedHeaders(init);
   headers.set("Content-Type", "application/json");
@@ -38,8 +52,8 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({ error: "Request failed" }))) as ApiError;
-    throw new Error(payload.error || "Request failed");
+    const payload = (await response.json().catch(() => ({ error: "Request failed" }))) as ApiErrorEnvelope;
+    throw new Error(getErrorMessage(payload));
   }
 
   if (response.status === 204) {
@@ -59,8 +73,8 @@ export async function apiFetchText(path: string, init?: RequestInit): Promise<st
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({ error: "Request failed" }))) as ApiError;
-    throw new Error(payload.error || "Request failed");
+    const payload = (await response.json().catch(() => ({ error: "Request failed" }))) as ApiErrorEnvelope;
+    throw new Error(getErrorMessage(payload));
   }
 
   return response.text();

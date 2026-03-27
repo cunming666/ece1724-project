@@ -374,10 +374,10 @@ export function StaffCheckinPage() {
   }
 
   return (
-    <main className="app-shell mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
+    <main className="app-shell page-ops mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
       <div className="hero-glow" />
 
-      <section className="stagger-enter rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-brand-900 p-6 text-white md:p-8">
+      <section className="stagger-enter rounded-3xl border border-slate-700 bg-slate-950 p-6 text-white shadow-[0_22px_40px_-26px_rgba(15,23,42,0.9)] md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-200">Check-in Workstation</p>
@@ -466,7 +466,7 @@ export function StaffCheckinPage() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button onClick={() => void startScanner()} disabled={isScannerActive || scanCheckin.isPending || !eventId}>
+                <Button className="ops-primary-btn" onClick={() => void startScanner()} disabled={isScannerActive || scanCheckin.isPending || !eventId}>
                   {scanCheckin.isPending ? "Submitting scan..." : isScannerActive ? "Scanner Running" : "Start Camera Scan"}
                 </Button>
                 <Button variant="ghost" onClick={() => void stopScanner()} disabled={!isScannerActive}>
@@ -480,9 +480,9 @@ export function StaffCheckinPage() {
               <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-700">
                 <p className="font-semibold text-slate-900">Camera tips</p>
                 <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                  <li>• Let the browser access your camera when prompted.</li>
-                  <li>• Ask the attendee to open the QR code from the ticket wallet page.</li>
-                  <li>• After one successful scan, the camera stops automatically to avoid duplicate reads.</li>
+                  <li>1. Let the browser access your camera when prompted.</li>
+                  <li>2. Ask the attendee to open the QR code from the ticket wallet page.</li>
+                  <li>3. After one successful scan, the camera stops automatically to avoid duplicate reads.</li>
                 </ul>
               </div>
             </div>
@@ -509,6 +509,7 @@ export function StaffCheckinPage() {
 
               <div className="flex flex-wrap gap-2">
                 <Button
+                  className="ops-primary-btn"
                   onClick={() => manualCheckin.mutate(manualTicketId.trim())}
                   disabled={!manualTicketId.trim() || manualCheckin.isPending}
                 >
@@ -655,7 +656,7 @@ export function StaffCheckinPage() {
                 <div className="mt-3 space-y-2">
                   {waitlistedAttendees.map((item) => (
                     <div key={item.id} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                      {item.attendee.name} — position {item.waitlistPosition ?? "-"}
+                      {item.attendee.name} | position {item.waitlistPosition ?? "-"}
                     </div>
                   ))}
                 </div>

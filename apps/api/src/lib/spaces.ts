@@ -1,4 +1,5 @@
 import { S3Client } from "@aws-sdk/client-s3";
+import { getEnv } from "./env.js";
 
 export interface SpacesConfig {
   region: string;
@@ -6,14 +7,6 @@ export interface SpacesConfig {
   bucket: string;
   accessKeyId: string;
   secretAccessKey: string;
-}
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
 }
 
 let cachedConfig: SpacesConfig | null = null;
@@ -24,12 +17,13 @@ export function getSpacesConfig(): SpacesConfig {
     return cachedConfig;
   }
 
+  const env = getEnv();
   cachedConfig = {
-    region: requireEnv("SPACES_REGION"),
-    endpoint: requireEnv("SPACES_ENDPOINT"),
-    bucket: requireEnv("SPACES_BUCKET"),
-    accessKeyId: requireEnv("SPACES_ACCESS_KEY"),
-    secretAccessKey: requireEnv("SPACES_SECRET_KEY"),
+    region: env.SPACES_REGION,
+    endpoint: env.SPACES_ENDPOINT,
+    bucket: env.SPACES_BUCKET,
+    accessKeyId: env.SPACES_ACCESS_KEY,
+    secretAccessKey: env.SPACES_SECRET_KEY,
   };
 
   return cachedConfig;

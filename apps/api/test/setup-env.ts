@@ -1,2 +1,9 @@
 process.env.NODE_ENV = "test";
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? "file:./dev.db";
+process.env.WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:5173";
+process.env.SPACES_REGION = process.env.SPACES_REGION ?? "test-region";
+process.env.SPACES_ENDPOINT = process.env.SPACES_ENDPOINT ?? "https://example.com";
+process.env.SPACES_BUCKET = process.env.SPACES_BUCKET ?? "test-bucket";
+process.env.SPACES_ACCESS_KEY = process.env.SPACES_ACCESS_KEY ?? "test-access-key";
+process.env.SPACES_SECRET_KEY = process.env.SPACES_SECRET_KEY ?? "test-secret-key";
+process.env.OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY ?? "test-weather-key";

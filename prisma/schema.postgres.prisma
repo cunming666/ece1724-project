@@ -80,6 +80,7 @@ model Registration {
   attendee User  @relation(fields: [attendeeId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, attendeeId])
+  @@unique([eventId, waitlistPosition])
 }
 
 model Ticket {
@@ -99,13 +100,14 @@ model Ticket {
 }
 
 model CheckinLog {
-  id          String   @id @default(cuid())
-  eventId     String
-  ticketId    String
-  staffId     String
-  method      String
-  checkedInAt DateTime @default(now())
-  isDuplicate Boolean  @default(false)
+  id            String   @id @default(cuid())
+  eventId       String
+  ticketId      String
+  staffId       String
+  method        String
+  checkedInAt   DateTime @default(now())
+  isDuplicate   Boolean  @default(false)
+  successfulKey String?  @unique
 
   event  Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)

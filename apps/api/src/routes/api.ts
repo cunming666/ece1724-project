@@ -1,4 +1,5 @@
-import type { CheckinLog, FileObject, Prisma, Registration, StaffAssignment, Ticket, User } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { CheckinLog, FileObject, Registration, StaffAssignment, Ticket, User } from "@prisma/client";
 import type { CheckinMethod, EventStatus, RegistrationStatus, UserRole } from "../types.js";
 import { Router } from "express";
 import type { Server } from "socket.io";
@@ -11,6 +12,7 @@ import { prisma } from "../lib/prisma.js";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getSpacesClient, getSpacesConfig } from "../lib/spaces.js";
+import { getEnv } from "../lib/env.js";
 
 const createEventSchema = z.object({
   title: z.string().min(1),
@@ -71,6 +73,41 @@ function parseImportSummary(summary: string | null): ImportSummary | null {
   }
 }
 
+class HttpError extends Error {
+  status: number;
+  code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function isUniqueConstraintError(error: unknown, fields?: string[]): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+    return false;
+  }
+
+  if (!fields || fields.length === 0) {
+    return true;
+  }
+
+  const rawTarget = error.meta?.target;
+  const targets = Array.isArray(rawTarget)
+    ? rawTarget.map((item) => String(item))
+    : rawTarget
+      ? [String(rawTarget)]
+      : [];
+
+  return fields.every((field) => targets.some((target) => target.includes(field)));
+}
+
+type DbClient = Prisma.TransactionClient | typeof prisma;
+
+function buildSuccessfulCheckinKey(eventId: string, ticketId: string): string {
+  return `${eventId}:${ticketId}`;
+}
 function parseAttendeeCsv(csvText: string): { rows: CsvParsedRow[]; issues: CsvIssue[] } {
   const normalizedText = csvText.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
@@ -320,48 +357,87 @@ async function canDownloadFile(auth: { id: string; role: UserRole }, file: FileO
   return false;
 }
 
-async function createTicket(eventId: string, attendeeId: string) {
+async function createTicketWithClient(db: DbClient, eventId: string, attendeeId: string) {
   const token = randomToken();
+  const tokenHash = hashToken(token);
 
-  const created = await prisma.ticket.create({
+  const existing = await db.ticket.findUnique({
+    where: {
+      eventId_attendeeId: {
+        eventId,
+        attendeeId,
+      },
+    },
+  });
+
+  if (existing) {
+    const qrPayload = JSON.stringify({ ticketId: existing.id, token });
+    return db.ticket.update({
+      where: { id: existing.id },
+      data: {
+        tokenHash,
+        qrPayload,
+        revokedAt: null,
+        issuedAt: new Date(),
+      },
+    });
+  }
+
+  const created = await db.ticket.create({
     data: {
       eventId,
       attendeeId,
-      tokenHash: hashToken(token),
+      tokenHash,
       qrPayload: "PENDING",
     },
   });
 
   const qrPayload = JSON.stringify({ ticketId: created.id, token });
 
-  const ticket = await prisma.ticket.update({
+  return db.ticket.update({
     where: { id: created.id },
     data: { qrPayload },
   });
+}
 
-  return ticket;
+async function createTicket(eventId: string, attendeeId: string) {
+  return createTicketWithClient(prisma, eventId, attendeeId);
 }
 
 async function writeCheckin(
   io: Server,
   args: { eventId: string; ticketId: string; staffId: string; method: CheckinMethod },
 ) {
-  const hasValid = await prisma.checkinLog.findFirst({
-    where: {
-      eventId: args.eventId,
-      ticketId: args.ticketId,
-      isDuplicate: false,
-    },
-  });
+  const successfulKey = buildSuccessfulCheckinKey(args.eventId, args.ticketId);
 
-  const checkin = await prisma.checkinLog.create({
-    data: {
-      eventId: args.eventId,
-      ticketId: args.ticketId,
-      staffId: args.staffId,
-      method: args.method,
-      isDuplicate: Boolean(hasValid),
-    },
+  const checkin = await prisma.$transaction(async (tx) => {
+    try {
+      return await tx.checkinLog.create({
+        data: {
+          eventId: args.eventId,
+          ticketId: args.ticketId,
+          staffId: args.staffId,
+          method: args.method,
+          isDuplicate: false,
+          successfulKey,
+        },
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error, ["successfulKey"])) {
+        throw error;
+      }
+    }
+
+    return tx.checkinLog.create({
+      data: {
+        eventId: args.eventId,
+        ticketId: args.ticketId,
+        staffId: args.staffId,
+        method: args.method,
+        isDuplicate: true,
+        successfulKey: null,
+      },
+    });
   });
 
   io.to(args.eventId).emit("checkin:created", {
@@ -376,6 +452,188 @@ async function writeCheckin(
   return checkin;
 }
 
+async function registerForEventTransactional(eventId: string, attendeeId: string) {
+  const maxAttempts = 4;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const event = await tx.event.findUnique({ where: { id: eventId } });
+
+        if (!event) {
+          throw new HttpError(404, "EVENT_NOT_FOUND", "Event not found");
+        }
+
+        if (event.status !== "PUBLISHED") {
+          throw new HttpError(409, "EVENT_NOT_OPEN", "Event is not open for registration");
+        }
+
+        const existing = await tx.registration.findUnique({
+          where: {
+            eventId_attendeeId: {
+              eventId,
+              attendeeId,
+            },
+          },
+        });
+
+        if (existing) {
+          throw new HttpError(409, "ALREADY_REGISTERED", "Already registered");
+        }
+
+        const confirmedCount = await tx.registration.count({
+          where: {
+            eventId,
+            status: "CONFIRMED",
+          },
+        });
+
+        let status: RegistrationStatus = "CONFIRMED";
+        let waitlistPosition: number | null = null;
+
+        if (confirmedCount >= event.capacity) {
+          if (!event.waitlistEnabled) {
+            throw new HttpError(409, "EVENT_FULL", "Event is full");
+          }
+
+          status = "WAITLISTED";
+          waitlistPosition =
+            (await tx.registration.count({
+              where: {
+                eventId,
+                status: "WAITLISTED",
+              },
+            })) + 1;
+        }
+
+        const registration = await tx.registration.create({
+          data: {
+            eventId,
+            attendeeId,
+            status,
+            waitlistPosition,
+          },
+        });
+
+        const ticket = status === "CONFIRMED" ? await createTicketWithClient(tx, eventId, attendeeId) : null;
+
+        return {
+          eventId,
+          registration,
+          ticket,
+        };
+      });
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+
+      if (isUniqueConstraintError(error, ["eventId", "attendeeId"])) {
+        throw new HttpError(409, "ALREADY_REGISTERED", "Already registered");
+      }
+
+      const retryableWaitlistConflict = isUniqueConstraintError(error, ["eventId", "waitlistPosition"]);
+      if (retryableWaitlistConflict && attempt < maxAttempts) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw new HttpError(409, "WAITLIST_CONFLICT", "Please retry registration");
+}
+
+async function cancelRegistrationTransactional(eventId: string, attendeeId: string) {
+  return prisma.$transaction(async (tx) => {
+    const registration = await tx.registration.findUnique({
+      where: {
+        eventId_attendeeId: {
+          eventId,
+          attendeeId,
+        },
+      },
+    });
+
+    if (!registration) {
+      throw new HttpError(404, "REGISTRATION_NOT_FOUND", "Registration not found");
+    }
+
+    await tx.registration.delete({ where: { id: registration.id } });
+
+    await tx.ticket.updateMany({
+      where: {
+        eventId,
+        attendeeId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
+
+    if (registration.status === "WAITLISTED" && registration.waitlistPosition !== null) {
+      await tx.registration.updateMany({
+        where: {
+          eventId,
+          status: "WAITLISTED",
+          waitlistPosition: {
+            gt: registration.waitlistPosition,
+          },
+        },
+        data: {
+          waitlistPosition: {
+            decrement: 1,
+          },
+        },
+      });
+    }
+
+    let promotedAttendeeId: string | null = null;
+
+    if (registration.status === "CONFIRMED") {
+      const promoted = await tx.registration.findFirst({
+        where: {
+          eventId,
+          status: "WAITLISTED",
+        },
+        orderBy: { waitlistPosition: "asc" },
+      });
+
+      if (promoted) {
+        await tx.registration.update({
+          where: { id: promoted.id },
+          data: {
+            status: "CONFIRMED",
+            waitlistPosition: null,
+          },
+        });
+
+        if (promoted.waitlistPosition !== null) {
+          await tx.registration.updateMany({
+            where: {
+              eventId,
+              status: "WAITLISTED",
+              waitlistPosition: {
+                gt: promoted.waitlistPosition,
+              },
+            },
+            data: {
+              waitlistPosition: {
+                decrement: 1,
+              },
+            },
+          });
+        }
+
+        await createTicketWithClient(tx, eventId, promoted.attendeeId);
+        promotedAttendeeId = promoted.attendeeId;
+      }
+    }
+
+    return { promotedAttendeeId };
+  });
+}
 export function createApiRouter(io: Server) {
   const router = Router();
 
@@ -778,71 +1036,15 @@ export function createApiRouter(io: Server) {
 
   router.post("/events/:eventId/register", requireAuth(["ATTENDEE"]), async (req, res, next) => {
     try {
-      const event = await prisma.event.findUnique({
-        where: { id: req.params.eventId },
-      });
-
-      if (!event) {
-        return res.status(404).json({ error: "Event not found" });
-      }
-      if (event.status !== "PUBLISHED") {
-        return res.status(409).json({ error: "Event is not open for registration" });
-      }
-
       const attendeeId = res.locals.auth.user.id;
+      const result = await registerForEventTransactional(req.params.eventId, attendeeId);
 
-      const exists = await prisma.registration.findFirst({
-        where: {
-          eventId: event.id,
-          attendeeId,
-        },
-      });
-
-      if (exists) {
-        return res.status(409).json({ error: "Already registered" });
-      }
-
-      const confirmedCount = await prisma.registration.count({
-        where: {
-          eventId: event.id,
-          status: "CONFIRMED",
-        },
-      });
-
-      let status: RegistrationStatus = "CONFIRMED";
-      let waitlistPosition: number | null = null;
-
-      if (confirmedCount >= event.capacity) {
-        if (!event.waitlistEnabled) {
-          return res.status(409).json({ error: "Event is full" });
-        }
-        status = "WAITLISTED";
-        waitlistPosition =
-          (await prisma.registration.count({
-            where: {
-              eventId: event.id,
-              status: "WAITLISTED",
-            },
-          })) + 1;
-      }
-
-      const registration = await prisma.registration.create({
-        data: {
-          eventId: event.id,
-          attendeeId,
-          status,
-          waitlistPosition,
-        },
-      });
-
-      let ticket: Awaited<ReturnType<typeof createTicket>> | null = null;
-      if (status === "CONFIRMED") {
-        ticket = await createTicket(event.id, attendeeId);
-      }
-
-      await emitAttendance(io, event.id);
-      res.status(201).json({ registration, ticket });
+      await emitAttendance(io, result.eventId);
+      res.status(201).json({ registration: result.registration, ticket: result.ticket });
     } catch (error) {
+      if (error instanceof HttpError) {
+        return res.status(error.status).json({ error: error.message, code: error.code });
+      }
       next(error);
     }
   });
@@ -852,62 +1054,21 @@ export function createApiRouter(io: Server) {
       const attendeeId = res.locals.auth.user.id;
       const eventId = req.params.eventId;
 
-      const registration = await prisma.registration.findFirst({
-        where: {
+      const { promotedAttendeeId } = await cancelRegistrationTransactional(eventId, attendeeId);
+
+      if (promotedAttendeeId) {
+        io.to(eventId).emit("waitlist:promoted", {
           eventId,
-          attendeeId,
-        },
-      });
-
-      if (!registration) {
-        return res.status(404).json({ error: "Registration not found" });
-      }
-
-      await prisma.registration.delete({
-        where: { id: registration.id },
-      });
-
-      await prisma.ticket.updateMany({
-        where: {
-          eventId,
-          attendeeId,
-          revokedAt: null,
-        },
-        data: {
-          revokedAt: new Date(),
-        },
-      });
-
-      if (registration.status === "CONFIRMED") {
-        const promoted = await prisma.registration.findFirst({
-          where: {
-            eventId,
-            status: "WAITLISTED",
-          },
-          orderBy: { waitlistPosition: "asc" },
+          attendeeId: promotedAttendeeId,
         });
-
-        if (promoted) {
-          await prisma.registration.update({
-            where: { id: promoted.id },
-            data: {
-              status: "CONFIRMED",
-              waitlistPosition: null,
-            },
-          });
-
-          await createTicket(eventId, promoted.attendeeId);
-
-          io.to(eventId).emit("waitlist:promoted", {
-            eventId,
-            attendeeId: promoted.attendeeId,
-          });
-        }
       }
 
       await emitAttendance(io, eventId);
       res.status(204).send();
     } catch (error) {
+      if (error instanceof HttpError) {
+        return res.status(error.status).json({ error: error.message, code: error.code });
+      }
       next(error);
     }
   });
@@ -1603,11 +1764,7 @@ router.get("/weather", async (req, res, next) => {
   try {
     const city = String(req.query.city || "Toronto");
 
-    const apiKey = process.env.OPENWEATHER_API_KEY;
-
-    if (!apiKey) {
-      return res.status(500).json({ error: "Weather API key not configured" });
-    }
+    const apiKey = getEnv().OPENWEATHER_API_KEY;
 
     const response = await fetch(
       `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=metric&appid=${apiKey}`
@@ -1630,3 +1787,13 @@ router.get("/weather", async (req, res, next) => {
 });
   return router;
 }
+
+
+
+
+
+
+
+
+
+

@@ -134,7 +134,7 @@ export function AttendeeTicketsPage() {
   }
 
   return (
-    <main className="app-shell mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
+    <main className="app-shell page-attendee mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
       <div className="hero-glow" />
 
       <section className="stagger-enter rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-brand-900 p-6 text-white md:p-8">
@@ -313,3 +313,4 @@ export function AttendeeTicketsPage() {
     </main>
   );
 }
+
