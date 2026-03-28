@@ -5,6 +5,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { AttendeeTicketsPage } from "./pages/AttendeeTicketsPage";
 import { ControlPanelPage } from "./pages/ControlPanelPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { EventRosterPage } from "./pages/EventRosterPage";
 import { StaffCheckinPage } from "./pages/StaffCheckinPage";
 
 function RootRedirect() {
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/panel/staff" element={<ControlPanelPage />} />
           <Route path="/panel/events" element={<ControlPanelPage />} />
           <Route path="/panel/tickets" element={<AttendeeTicketsPage />} />
+          <Route path="/panel/events/:eventId/attendees" element={<EventRosterPage />} />
           <Route path="/panel/events/:eventId/checkin" element={<StaffCheckinPage />} />
           <Route path="/panel/events/:eventId/dashboard" element={<DashboardPage />} />
         </Route>

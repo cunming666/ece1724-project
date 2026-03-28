@@ -185,14 +185,22 @@ export function DashboardPage() {
       <section className="stagger-enter rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-700">Live Operations</p>
-            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Attendance Dashboard</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-700">Event</p>
+            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Event Dashboard</h1>
             <p className="mt-2 text-sm text-slate-600">Event ID: {eventId}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" onClick={loadDashboard} disabled={isLoading}>
               {isLoading ? "Refreshing..." : "Refresh"}
             </Button>
+            {eventId ? (
+              <Link
+                to={`/panel/events/${eventId}/attendees`}
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
+              >
+                View Roster
+              </Link>
+            ) : null}
             <Link
               to="/panel"
               className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
@@ -202,8 +210,8 @@ export function DashboardPage() {
           </div>
         </div>
         <div className="mt-5 flex items-center gap-2">
-          <Pill tone="brand">Socket.IO Connected</Pill>
-          <Pill tone="slate">Live Refresh Enabled</Pill>
+          <Pill tone="brand">Live</Pill>
+          <Pill tone="slate">Auto Refresh</Pill>
         </div>
       </section>
 
@@ -226,23 +234,23 @@ export function DashboardPage() {
       ) : null}
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card className="stagger-enter stagger-1" title="Confirmed" subtitle="Eligible attendees">
+        <Card className="stagger-enter stagger-1" title="Confirmed" subtitle="Registered attendees">
           <p className="font-heading text-4xl font-bold text-slate-900">{confirmed}</p>
         </Card>
         <Card className="stagger-enter stagger-2" title="Checked In" subtitle="Completed entries">
           <p className="font-heading text-4xl font-bold text-slate-900">{checkedIn}</p>
         </Card>
-        <Card className="stagger-enter stagger-3" title="Pending" subtitle="Confirmed but not checked in">
+        <Card className="stagger-enter stagger-3" title="Pending" subtitle="Not checked in">
           <p className="font-heading text-4xl font-bold text-slate-900">{pendingCheckin}</p>
         </Card>
-        <Card className="stagger-enter stagger-4" title="Check-in Rate" subtitle="Checked-in / confirmed">
+        <Card className="stagger-enter stagger-4" title="Check-in Rate" subtitle="Checked in / confirmed">
           <p className="font-heading text-4xl font-bold text-slate-900">{checkinRate}%</p>
         </Card>
       </section>
 
       <section className="mt-6 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-5">
-          <Card className="stagger-enter stagger-2" title="Attendance Distribution" subtitle="Current attendee state breakdown">
+          <Card className="stagger-enter stagger-2" title="Attendance" subtitle="Current breakdown">
             <div className="space-y-4">
               {distribution.map((item) => (
                 <div key={item.label}>
@@ -255,11 +263,11 @@ export function DashboardPage() {
                   </div>
                 </div>
               ))}
-              <p className="text-xs text-slate-500">Tracked registrations in flow: {totalFlow}</p>
+              <p className="text-xs text-slate-500">Total tracked: {totalFlow}</p>
             </div>
           </Card>
 
-          <Card className="stagger-enter stagger-3" title="Check-in Trend" subtitle="Relative trend based on latest check-in records">
+          <Card className="stagger-enter stagger-3" title="Check-in Trend" subtitle="Based on recent check-ins">
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <div className="flex h-44 items-end gap-3">
                 {trendBars.map((height, index) => (
@@ -275,8 +283,8 @@ export function DashboardPage() {
 
         <Card
           className="stagger-enter stagger-4"
-          title="Activity Stream"
-          subtitle="Latest check-in events and outcomes"
+          title="Recent Check-ins"
+          subtitle="Latest entries"
           headerRight={<Pill tone="slate">{data?.recentCheckins?.length ?? 0}</Pill>}
         >
           <div className="space-y-3">
@@ -306,7 +314,7 @@ export function DashboardPage() {
       </section>
 
       <section className="mt-6 grid gap-5 xl:grid-cols-2">
-        <Card className="stagger-enter stagger-5" title="Manual Check-in" subtitle="Fallback when QR scanning is unavailable">
+        <Card className="stagger-enter stagger-5" title="Manual Check-in" subtitle="Enter a ticket ID.">
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
             <div>
               <FieldLabel>Ticket ID</FieldLabel>
@@ -324,7 +332,7 @@ export function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="stagger-enter stagger-6" title="Roster Snapshot" subtitle="Confirmed and waitlisted attendees">
+        <Card className="stagger-enter stagger-6" title="Roster" subtitle="Confirmed and waitlisted attendees">
           <div className="grid gap-3">
             <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Confirmed</p>

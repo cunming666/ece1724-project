@@ -37,7 +37,7 @@ export function panelSectionFromPath(pathname: string): PanelSection {
   if (pathname === "/panel/staff" || pathname.endsWith("/checkin")) {
     return "staff";
   }
-  if (pathname === "/panel/events" || pathname.endsWith("/dashboard")) {
+  if (pathname === "/panel/events" || pathname.endsWith("/dashboard") || pathname.endsWith("/attendees")) {
     return "events";
   }
   return "overview";

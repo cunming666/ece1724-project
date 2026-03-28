@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
-const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:4173";
-const apiURL = process.env.E2E_API_URL ?? "http://127.0.0.1:4000";
+const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:4173";
+const apiURL = process.env.E2E_API_URL ?? "http://localhost:4000";
 const e2eDatabaseUrl = process.env.E2E_DATABASE_URL ?? "file:./e2e.db";
 
 export default defineConfig({
@@ -35,7 +35,7 @@ export default defineConfig({
       },
     },
     {
-      command: "npm run build -w @checkin/web && npm run preview -w @checkin/web -- --host 127.0.0.1 --port 4173",
+      command: "npm run build -w @checkin/web && npm run preview -w @checkin/web -- --host localhost --port 4173",
       port: 4173,
       reuseExistingServer: false,
       timeout: 180_000,

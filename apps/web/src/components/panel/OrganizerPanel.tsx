@@ -147,8 +147,8 @@ export function OrganizerPanel({
       <Card
         className="stagger-enter stagger-2"
         title="Create Event"
-        subtitle="Organizer creates a draft event first, then publishes it from My Event Studio."
-        headerRight={<Pill tone="warm">Organizer Studio</Pill>}
+        subtitle="Create a draft event."
+        headerRight={<Pill tone="warm">Organizer</Pill>}
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
@@ -173,17 +173,17 @@ export function OrganizerPanel({
           <Button onClick={createEventState.onCreate} disabled={createEventState.isPending}>
             {createEventState.isPending ? "Creating..." : "Create Draft Event"}
           </Button>
-          <p className="text-xs text-slate-600">Drafts appear below immediately and can be published without leaving the UI.</p>
+          <p className="text-xs text-slate-600">New drafts appear below.</p>
         </div>
       </Card>
 
       <Card
         className="stagger-enter stagger-3"
-        title="My Event Studio"
-        subtitle="Review your draft events, publish them, launch live dashboards, or open the check-in workstation."
-        headerRight={<Pill tone="brand">Publish in UI</Pill>}
+        title="My Events"
+        subtitle="Draft and published events."
+        headerRight={<Pill tone="brand">Events</Pill>}
       >
-        {myEventsState.isLoading ? <p className="rounded-xl bg-slate-100/80 px-3 py-2 text-sm text-slate-600">Loading your events...</p> : null}
+        {myEventsState.isLoading ? <p className="rounded-xl bg-slate-100/80 px-3 py-2 text-sm text-slate-600">Loading events...</p> : null}
 
         {myEventsState.isError ? <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{myEventsState.errorMessage}</p> : null}
 
@@ -202,7 +202,7 @@ export function OrganizerPanel({
                         <h4 className="font-semibold text-slate-900">{event.title}</h4>
                         <p className="mt-1 text-sm text-slate-600">{event.location}</p>
                         <p className="mt-1 text-xs text-slate-500">
-                          {new Date(event.startTime).toLocaleString()} | capacity {event.capacity}
+                          {new Date(event.startTime).toLocaleString()} | Capacity {event.capacity}
                         </p>
                       </div>
                       <Pill tone="warm">{event.status}</Pill>
@@ -237,7 +237,7 @@ export function OrganizerPanel({
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-6 text-sm text-slate-600">
-                No drafts yet. Create an event above to start your organizer workflow.
+                No draft events.
               </div>
             )}
           </div>
@@ -256,7 +256,7 @@ export function OrganizerPanel({
                         <h4 className="font-semibold text-slate-900">{event.title}</h4>
                         <p className="mt-1 text-sm text-slate-600">{event.location}</p>
                         <p className="mt-1 text-xs text-slate-500">
-                          {new Date(event.startTime).toLocaleString()} | capacity {event.capacity}
+                          {new Date(event.startTime).toLocaleString()} | Capacity {event.capacity}
                         </p>
                       </div>
                       <Pill tone="brand">{event.status}</Pill>
@@ -280,6 +280,12 @@ export function OrganizerPanel({
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <Link
+                        to={`/panel/events/${event.id}/attendees`}
+                        className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white/70 px-4 text-sm font-semibold text-slate-800 transition hover:bg-white"
+                      >
+                        View Roster
+                      </Link>
+                      <Link
                         to={`/panel/events/${event.id}/dashboard`}
                         className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white/70 px-4 text-sm font-semibold text-slate-800 transition hover:bg-white"
                       >
@@ -297,7 +303,7 @@ export function OrganizerPanel({
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-6 text-sm text-slate-600">
-                Publish a draft to make it appear in the shared board.
+                No published events.
               </div>
             )}
           </div>
@@ -306,15 +312,15 @@ export function OrganizerPanel({
 
       <Card
         className="stagger-enter stagger-4"
-        title="Staff Assignment"
-        subtitle="Assign staff accounts to one of your published events by email."
-        headerRight={<Pill tone="brand">P0-5</Pill>}
+        title="Staff"
+        subtitle="Assign staff by email."
+        headerRight={<Pill tone="brand">Access</Pill>}
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <FieldLabel>Select Published Event</FieldLabel>
+            <FieldLabel>Event</FieldLabel>
             <Select value={selectedEventId} onChange={(e) => onSelectEventId(e.target.value)}>
-              <option value="">Choose one of your published events</option>
+              <option value="">Select an event</option>
               {myPublishedEvents.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.title} ({event.status})
@@ -325,7 +331,7 @@ export function OrganizerPanel({
 
           <div>
             <FieldLabel>Staff Email</FieldLabel>
-            <Input placeholder="staff@test.com" value={staffEmail} onChange={(e) => onStaffEmailChange(e.target.value)} />
+            <Input placeholder="staff@example.com" value={staffEmail} onChange={(e) => onStaffEmailChange(e.target.value)} />
           </div>
         </div>
 
@@ -334,7 +340,7 @@ export function OrganizerPanel({
             {assignStaffState.isPending ? "Assigning..." : "Assign Staff"}
           </Button>
           <Button variant="secondary" onClick={staffAssignmentsState.onRefresh} disabled={!selectedEventId || staffAssignmentsState.isFetching}>
-            {staffAssignmentsState.isFetching ? "Refreshing..." : "Refresh Staff List"}
+            {staffAssignmentsState.isFetching ? "Refreshing..." : "Refresh"}
           </Button>
         </div>
 
@@ -343,7 +349,7 @@ export function OrganizerPanel({
 
           {!selectedEventId ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-              Publish one of your events first, then select it here to manage staff assignments.
+              Select an event to manage staff.
             </div>
           ) : staffAssignmentsState.isLoading ? (
             <div className="rounded-2xl bg-slate-100/80 px-4 py-5 text-sm text-slate-600">Loading staff...</div>
@@ -365,7 +371,7 @@ export function OrganizerPanel({
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-              No staff assigned to this event yet.
+              No staff assigned.
             </div>
           )}
         </div>
@@ -373,13 +379,13 @@ export function OrganizerPanel({
 
       <Card
         className="stagger-enter stagger-5"
-        title="CSV Attendee Import"
-        subtitle="Upload a simple CSV file with name,email rows for one of your published events."
-        headerRight={<Pill tone="brand">CSV Import</Pill>}
+        title="Import Attendees"
+        subtitle="Upload a CSV file for a published event."
+        headerRight={<Pill tone="brand">CSV</Pill>}
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <FieldLabel>Select Published Event</FieldLabel>
+            <FieldLabel>Event</FieldLabel>
             <Select
               value={selectedEventId}
               onChange={(e) => {
@@ -387,7 +393,7 @@ export function OrganizerPanel({
                 csvState.onClearResult();
               }}
             >
-              <option value="">Choose one of your published events</option>
+              <option value="">Select an event</option>
               {myPublishedEvents.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.title} ({event.status})
@@ -404,7 +410,7 @@ export function OrganizerPanel({
 
         <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>Expected format:</span>
+            <span>Format</span>
             <a
               href="/sample-attendees.csv"
               download
@@ -417,8 +423,7 @@ export function OrganizerPanel({
             {"name,email\nAlice,alice@example.com\nBob,bob@example.com"}
           </div>
           <p className="mt-3 text-xs text-amber-700">
-            Imported new users will be created with the default password <span className="font-semibold">pass1234</span>.
-            Please remind new users to sign in and change their password as soon as possible.
+            New users are created with the default password <span className="font-semibold">pass1234</span>. Ask them to change it after signing in.
           </p>
         </div>
 
@@ -429,7 +434,15 @@ export function OrganizerPanel({
           <Button variant="secondary" onClick={csvState.onClear} disabled={importCsvState.isPending}>
             Clear
           </Button>
-          <p className="text-xs text-slate-600">{csvState.file ? `Selected: ${csvState.file.name}` : "No file selected yet."}</p>
+          {selectedEventId ? (
+            <Link
+              to={`/panel/events/${selectedEventId}/attendees`}
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
+            >
+              Add One Attendee
+            </Link>
+          ) : null}
+          <p className="text-xs text-slate-600">{csvState.file ? `Selected: ${csvState.file.name}` : "No file selected."}</p>
         </div>
 
         {csvState.result ? (
@@ -462,12 +475,12 @@ export function OrganizerPanel({
             </div>
 
             <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-              Import finished: {csvState.result.summary.importedRows} row(s) imported, {csvState.result.summary.duplicateRows} duplicate row(s), {" "}
+              Import complete: {csvState.result.summary.importedRows} row(s) imported, {csvState.result.summary.duplicateRows} duplicate row(s), {" "}
               {csvState.result.summary.invalidRows} invalid row(s).
             </div>
 
             <div>
-              <p className="text-sm font-semibold text-slate-800">Import Issues</p>
+              <p className="text-sm font-semibold text-slate-800">Issues</p>
               {csvState.result.issues.length ? (
                 <div className="mt-3 space-y-2">
                   {csvState.result.issues.map((issue, index) => (
@@ -478,7 +491,7 @@ export function OrganizerPanel({
                 </div>
               ) : (
                 <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                  No issues found in this CSV import.
+                  No issues found.
                 </div>
               )}
             </div>
@@ -487,18 +500,18 @@ export function OrganizerPanel({
 
         <div className="mt-5 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-slate-800">Recent Import Jobs</p>
+            <p className="text-sm font-semibold text-slate-800">Recent Imports</p>
             <Button variant="secondary" onClick={importHistoryState.onRefresh} disabled={!selectedEventId || importHistoryState.isFetching}>
-              {importHistoryState.isFetching ? "Refreshing..." : "Refresh History"}
+              {importHistoryState.isFetching ? "Refreshing..." : "Refresh"}
             </Button>
           </div>
 
           {!selectedEventId ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-              Select a published event to view CSV import history.
+              Select an event to view import history.
             </div>
           ) : importHistoryState.isLoading ? (
-            <div className="rounded-2xl bg-slate-100/80 px-4 py-4 text-sm text-slate-600">Loading import history...</div>
+            <div className="rounded-2xl bg-slate-100/80 px-4 py-4 text-sm text-slate-600">Loading history...</div>
           ) : importHistoryState.isError ? (
             <div className="rounded-2xl bg-rose-50 px-4 py-4 text-sm text-rose-700">Failed to load import history.</div>
           ) : importHistoryState.items.length ? (
@@ -524,7 +537,7 @@ export function OrganizerPanel({
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-              No import jobs yet for this event.
+              No imports yet.
             </div>
           )}
         </div>

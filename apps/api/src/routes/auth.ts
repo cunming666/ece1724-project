@@ -6,20 +6,25 @@ import { requireAuth, resolveSession } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
 
 const signUpSchema = z.object({
-  email: z.string().email(),
-  name: z.string().min(1),
+  email: z.string().trim().email("Please enter a valid email address."),
+  name: z.string().trim().min(1, "Please enter your name."),
   password: z.string().min(6),
   role: z.enum(["ORGANIZER", "STAFF", "ATTENDEE"]).default("ATTENDEE"),
 });
 
 const signInSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email("Please enter a valid email address."),
   password: z.string().min(6),
 });
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(6),
   newPassword: z.string().min(6),
+});
+
+const updateProfileSchema = z.object({
+  name: z.string().trim().min(1, "Please enter your name."),
+  email: z.string().trim().email("Please enter a valid email address."),
 });
 
 export function createAuthRouter() {
@@ -94,6 +99,50 @@ export function createAuthRouter() {
           email: user.email,
           name: user.name,
           role: user.role,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.patch("/profile", requireAuth(), async (req, res, next) => {
+    try {
+      const parsed = updateProfileSchema.parse(req.body);
+      const userId = res.locals.auth.user.id;
+      const normalizedEmail = parsed.email.trim().toLowerCase();
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const existingEmailOwner = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+
+      if (existingEmailOwner && existingEmailOwner.id !== userId) {
+        return res.status(409).json({ error: "Email already registered" });
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          name: parsed.name.trim(),
+          email: normalizedEmail,
+        },
+      });
+
+      res.json({
+        message: "Account updated successfully",
+        user: {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          name: updatedUser.name,
+          role: updatedUser.role,
         },
       });
     } catch (error) {

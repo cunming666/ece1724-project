@@ -407,6 +407,12 @@ body {
   gap: 10px;
 }
 
+.dashboard-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .dashboard-search input {
   width: min(300px, 42vw);
   height: 38px;
@@ -544,10 +550,15 @@ body {
   .dashboard-topbar-right {
     width: 100%;
     justify-content: space-between;
+    flex-wrap: wrap;
   }
 
   .dashboard-topbar-title {
     font-size: 1.04rem;
+  }
+
+  .dashboard-topbar-actions {
+    margin-left: auto;
   }
 
   .dashboard-user-chip {

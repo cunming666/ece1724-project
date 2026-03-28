@@ -1,15 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Card, FieldLabel, Input, Pill } from "../components/ui";
-import { apiFetch, clearSessionToken } from "../lib/api";
-import { SESSION_QUERY_KEY, useSessionQuery } from "../lib/session";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Card, Pill } from "../components/ui";
+import { apiFetch } from "../lib/api";
+import { useSessionQuery } from "../lib/session";
 import { getPanelNavEntries, panelSectionFromPath } from "../lib/panelNav";
 import { EventBoardPanel } from "../components/panel/EventBoardPanel";
 import { OrganizerPanel } from "../components/panel/OrganizerPanel";
 import { OverviewPanel } from "../components/panel/OverviewPanel";
 import { StaffPanel } from "../components/panel/StaffPanel";
-import { resetClientState } from "../store";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { dismissWeatherCard, setNotice, setOverviewRange, setSelectedOrganizerEventId, type OverviewRange } from "../store/slices/panelSlice";
 
@@ -110,6 +109,13 @@ function parseOverviewRange(value: string | null | undefined): OverviewRange | n
   }
   return null;
 }
+
+function withOverviewRangeParam(search: string, range: OverviewRange): URLSearchParams {
+  const nextParams = new URLSearchParams(search);
+  nextParams.set("range", range.toLowerCase());
+  return nextParams;
+}
+
 type PresignUploadResponse = {
   file: {
     id: string;
@@ -142,9 +148,8 @@ function NoticeBanner({ notice }: { notice: Notice }) {
 }
 
 export function ControlPanelPage() {
-  const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const dispatch = useAppDispatch();
   const notice = useAppSelector((state) => state.panel.notice as Notice | null);
@@ -165,12 +170,12 @@ export function ControlPanelPage() {
   const [csvImportResult, setCsvImportResult] = useState<CsvImportResponse | null>(null);
   const [coverFilesByEvent, setCoverFilesByEvent] = useState<Record<string, File | null>>({});
   const [coverPreviewUrlsByEvent, setCoverPreviewUrlsByEvent] = useState<Record<string, string>>({});
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-  const [changePasswordMessage, setChangePasswordMessage] = useState("");
   const overviewRange = useAppSelector((state) => state.panel.overviewRange);
   const showWeatherCard = useAppSelector((state) => state.panel.showWeatherCard);
+  const queryOverviewRange = useMemo(
+    () => parseOverviewRange(new URLSearchParams(location.search).get("range")),
+    [location.search],
+  );
   const eventsQuery = useQuery({
     queryKey: ["events"],
     queryFn: () => apiFetch<{ items: EventItem[] }>("/api/events"),
@@ -261,27 +266,23 @@ export function ControlPanelPage() {
       return;
     }
 
-    const fromQuery = parseOverviewRange(searchParams.get("range"));
-    if (fromQuery && fromQuery !== overviewRange) {
-      dispatch(setOverviewRange(fromQuery));
+    if (queryOverviewRange) {
+      dispatch(setOverviewRange(queryOverviewRange));
     }
-  }, [dispatch, location.pathname, overviewRange, searchParams]);
+  }, [dispatch, location.pathname, queryOverviewRange]);
 
   useEffect(() => {
-    const serializedRange = overviewRange.toLowerCase();
-
     if (location.pathname !== "/panel") {
       return;
     }
 
-    if (searchParams.get("range") === serializedRange) {
+    if (queryOverviewRange === overviewRange) {
       return;
     }
 
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.set("range", serializedRange);
+    const nextParams = withOverviewRangeParam(location.search, overviewRange);
     setSearchParams(nextParams, { replace: true });
-  }, [location.pathname, overviewRange, searchParams, setSearchParams]);
+  }, [location.pathname, location.search, overviewRange, queryOverviewRange, setSearchParams]);
   const weatherQuery = useQuery({
     queryKey: ["weather-toronto"],
     queryFn: () => apiFetch<WeatherResponse>("/api/weather?city=Toronto"),
@@ -460,24 +461,6 @@ export function ControlPanelPage() {
     onError: (err: Error) => dispatch(setNotice({ tone: "error", text: err.message })),
   });
 
-  const register = useMutation({
-    mutationFn: (eventId: string) =>
-      apiFetch<{ registration: { status: "CONFIRMED" | "WAITLISTED" }; ticket: { id: string } | null }>(
-        `/api/events/${eventId}/register`,
-        { method: "POST" },
-      ),
-    onSuccess: (payload) => {
-      if (payload.registration.status === "WAITLISTED") {
-        dispatch(setNotice({ tone: "info", text: "Event is full. You have been added to the waitlist." }));
-      } else {
-        dispatch(setNotice({ tone: "success", text: "Registered successfully. Your ticket is now available in My Tickets." }));
-      }
-      queryClient.invalidateQueries({ queryKey: ["my-tickets"] });
-      queryClient.invalidateQueries({ queryKey: ["events"] });
-    },
-    onError: (err: Error) => dispatch(setNotice({ tone: "error", text: err.message })),
-  });
-
   const assignStaff = useMutation({
     mutationFn: async () => {
       if (!selectedEventId) {
@@ -645,41 +628,6 @@ export function ControlPanelPage() {
       dispatch(setNotice({ tone: "error", text: err.message }));
     },
   });
-  const changePassword = useMutation({
-    mutationFn: async () => {
-      if (!currentPassword.trim()) {
-        throw new Error("Please enter your current password.");
-      }
-      if (!newPassword.trim()) {
-        throw new Error("Please enter a new password.");
-      }
-      if (newPassword.length < 6) {
-        throw new Error("New password must be at least 6 characters.");
-      }
-      if (newPassword !== confirmNewPassword) {
-        throw new Error("New password and confirm password do not match.");
-      }
-
-      return apiFetch<{ message: string }>("/auth/change-password", {
-        method: "POST",
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-        }),
-      });
-    },
-    onSuccess: (payload) => {
-      setChangePasswordMessage(payload.message || "Password updated successfully.");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmNewPassword("");
-      dispatch(setNotice({ tone: "success", text: "Password updated successfully." }));
-    },
-    onError: (err: Error) => {
-      setChangePasswordMessage(err.message);
-      dispatch(setNotice({ tone: "error", text: err.message }));
-    },
-  });
 
   const viewMode: PanelView = location.pathname === "/panel/organizer"
     ? "organizer"
@@ -695,27 +643,33 @@ export function ControlPanelPage() {
       : viewMode === "staff"
         ? "Staff Console"
         : viewMode === "events"
-          ? "Published Event Board"
+          ? "Event Board"
           : "Overview";
 
   const moduleDescription =
     viewMode === "organizer"
-      ? "Build and publish events, assign staff, and handle CSV attendee imports."
+      ? "Create events, publish them, import attendees, and manage staff."
       : viewMode === "staff"
-        ? "Operate check-in workflows and monitor event status in real time."
+        ? "Open the event board, then go to check-in or the dashboard."
         : viewMode === "events"
-          ? "Browse all published events and jump into dashboard/check-in operations."
-          : "Use this overview to access your role-specific workflows quickly.";
+          ? "View published events and open the page you need."
+          : "View key data for your account.";
 
-  const isEventsMode = viewMode === "events";
-  const showRoleWorkspace =
-    viewMode === "overview" ||
-    (currentUser?.role === "ORGANIZER" && viewMode === "organizer") ||
-    ((currentUser?.role === "ORGANIZER" || currentUser?.role === "STAFF") && viewMode === "staff");
-  const showFallbackModuleCard = !isEventsMode && !showRoleWorkspace;
-  const mainGridClass = isEventsMode ? "mt-6 grid gap-5" : "mt-6 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]";
-  const showAccountCard = !isEventsMode;
-  const boardEvents = viewMode === "overview" ? overviewScopedEvents.slice(0, 4) : orderedPublishedEvents;
+  const heroTitle =
+    viewMode === "overview"
+      ? "Overview"
+      : viewLabel;
+
+  const heroEyebrow =
+    viewMode === "overview"
+      ? "Panel"
+      : "Current Module";
+
+  const canOpenOrganizerModule = currentUser?.role === "ORGANIZER";
+  const canOpenStaffModule = currentUser?.role === "ORGANIZER" || currentUser?.role === "STAFF";
+  const showFallbackModuleCard =
+    (viewMode === "organizer" && !canOpenOrganizerModule) ||
+    (viewMode === "staff" && !canOpenStaffModule);
   const quickNavItems = getPanelNavEntries(currentUser?.role);
   const activePanelSection = panelSectionFromPath(location.pathname);
 
@@ -725,18 +679,16 @@ export function ControlPanelPage() {
         ? "border-brand-400 bg-brand-50 text-brand-700 shadow-soft"
         : "border-slate-200 bg-white text-slate-800 hover:border-brand-300 hover:text-brand-700"
     }`;
-  const signOut = useMutation({
-    mutationFn: () => apiFetch("/auth/sign-out", { method: "POST" }),
-    onSuccess: () => {
-      clearSessionToken();
-      dispatch(resetClientState());
-      queryClient.removeQueries({ queryKey: SESSION_QUERY_KEY });
-      navigate("/auth", { replace: true });
-    },
-    onError: (err: Error) => {
-      dispatch(setNotice({ tone: "error", text: err.message }));
-    },
-  });
+
+  function handleOverviewRangeChange(range: OverviewRange) {
+    dispatch(setOverviewRange(range));
+
+    if (location.pathname !== "/panel") {
+      return;
+    }
+
+    setSearchParams(withOverviewRangeParam(location.search, range), { replace: true });
+  }
 
   return (
     <main className="app-shell page-saas mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
@@ -756,17 +708,13 @@ export function ControlPanelPage() {
 
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-600">Control Panel</p>
-            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">Event Operations Workspace</h1>
-            <p className="mt-2 text-sm text-slate-600">
-              Logged in as {currentUser?.name ?? "Unknown"} ({stats.role})
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-600">{heroEyebrow}</p>
+            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">{heroTitle}</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-600">{moduleDescription}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Pill tone="brand">Authenticated</Pill>
-            <Button variant="ghost" onClick={() => signOut.mutate()} disabled={signOut.isPending}>
-              {signOut.isPending ? "Signing out..." : "Sign Out"}
-            </Button>
+            <Pill tone="brand">{stats.role}</Pill>
+            <Pill tone="slate">{viewLabel}</Pill>
           </div>
         </div>
 
@@ -784,13 +732,13 @@ export function ControlPanelPage() {
             <p className="mt-1 text-xl font-bold">{stats.role}</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs text-slate-600">Personal Workspace</p>
+            <p className="text-xs text-slate-600">My Status</p>
             <p className="mt-1 text-xl font-bold">
               {currentUser?.role === "ORGANIZER"
                 ? `${stats.drafts} draft${stats.drafts === 1 ? "" : "s"}`
                 : currentUser?.role === "ATTENDEE"
                   ? `${stats.activeTickets} active ticket${stats.activeTickets === 1 ? "" : "s"}`
-                  : "Live access"}
+                  : "Event access"}
             </p>
           </div>
         </div>
@@ -808,211 +756,147 @@ export function ControlPanelPage() {
         ))}
       </section>
 
-      <p className="mt-4 text-sm font-semibold text-slate-700">Current module: {viewLabel}</p>
-      <p className="mt-1 text-sm text-slate-500">{moduleDescription}</p>
-
       {notice ? <NoticeBanner notice={notice} /> : null}
 
-      <section className={mainGridClass}>
-        {!isEventsMode ? (
-          <div className="space-y-5">
-            {showFallbackModuleCard ? (
-              <Card
-                className="stagger-enter stagger-2"
-                title="Module Access"
-                subtitle="This module is optimized for a different role."
-                headerRight={<Pill tone="warm">Switch Module</Pill>}
+      <section className="mt-6 space-y-5">
+        {showFallbackModuleCard ? (
+          <Card
+            className="stagger-enter stagger-2"
+            title="Access"
+            subtitle="This page is not available for your role."
+            headerRight={<Pill tone="warm">Restricted</Pill>}
+          >
+            <p className="text-sm text-slate-700">
+              You are signed in as <span className="font-semibold">{currentUser?.role ?? "UNKNOWN"}</span>. Open a page available to this account.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link
+                to="/panel"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
               >
-                <p className="text-sm text-slate-700">
-                  Your current role is <span className="font-semibold">{currentUser?.role ?? "UNKNOWN"}</span>. Use the quick links below to open modules available to your account.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Link
-                    to="/panel"
-                    className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
-                  >
-                    Back to Overview
-                  </Link>
-                  <Link
-                    to="/panel/events"
-                    className="inline-flex h-10 items-center justify-center rounded-xl bg-brand-700 px-4 text-sm font-semibold text-white transition hover:bg-brand-800"
-                  >
-                    Open Event Board
-                  </Link>
-                </div>
-              </Card>
-                        ) : viewMode === "overview" ? (
-              <OverviewPanel
-                currentUserRole={currentUser?.role}
-                overviewRange={overviewRange}
-                onChangeRange={(range) => dispatch(setOverviewRange(range))}
-                overviewRangeMeta={overviewRangeMeta}
-                overviewScopedEvents={overviewScopedEvents}
-                overviewUpcomingEvents={overviewUpcomingEvents}
-                overviewRangeDelta={overviewRangeDelta}
-                upcomingCoveragePct={upcomingCoveragePct}
-                nextUpcomingEvent={nextUpcomingEvent}
-                nextEventCountdownLabel={nextEventCountdownLabel}
-                overviewBars={overviewBars}
-                stats={stats}
-              />
-                        ) : currentUser?.role === "ORGANIZER" && viewMode === "organizer" ? (
-              <OrganizerPanel
-                eventForm={eventForm}
-                onEventFormChange={(patch) => setEventForm((prev) => ({ ...prev, ...patch }))}
-                createEventState={{
-                  isPending: createEvent.isPending,
-                  onCreate: () => createEvent.mutate(),
-                }}
-                myEventsState={{
-                  isLoading: myEventsQuery.isLoading,
-                  isError: myEventsQuery.isError,
-                  errorMessage: myEventsQuery.error instanceof Error ? myEventsQuery.error.message : "Failed to load events.",
-                }}
-                draftEvents={draftEvents}
-                myPublishedEvents={myPublishedEvents}
-                coverFilesByEvent={coverFilesByEvent}
-                coverPreviewUrlsByEvent={coverPreviewUrlsByEvent}
-                onCoverFileChange={(eventId, file) => {
-                  setCoverFilesByEvent((prev) => ({
-                    ...prev,
-                    [eventId]: file,
-                  }));
-                }}
-                uploadEventCoverState={{
-                  isPending: uploadEventCover.isPending,
-                  variables: uploadEventCover.variables,
-                  onUpload: (eventId) => uploadEventCover.mutate(eventId),
-                }}
-                publishEventState={{
-                  isPending: publishEvent.isPending,
-                  variables: publishEvent.variables,
-                  onPublish: (eventId) => publishEvent.mutate(eventId),
-                }}
-                selectedEventId={selectedEventId}
-                onSelectEventId={(eventId) => dispatch(setSelectedOrganizerEventId(eventId))}
-                staffEmail={staffEmail}
-                onStaffEmailChange={setStaffEmail}
-                assignStaffState={{
-                  isPending: assignStaff.isPending,
-                  onAssign: () => assignStaff.mutate(),
-                }}
-                staffAssignmentsState={{
-                  isLoading: staffAssignmentsQuery.isLoading,
-                  isError: staffAssignmentsQuery.isError,
-                  isFetching: staffAssignmentsQuery.isFetching,
-                  items: staffAssignmentsQuery.data?.items ?? [],
-                  onRefresh: () => {
-                    void staffAssignmentsQuery.refetch();
-                  },
-                }}
-                removeStaffState={{
-                  isPending: removeStaff.isPending,
-                  onRemove: (userId) => removeStaff.mutate(userId),
-                }}
-                csvState={{
-                  file: csvFile,
-                  result: csvImportResult,
-                  onFileChange: setCsvFile,
-                  onClear: () => {
-                    setCsvFile(null);
-                    setCsvImportResult(null);
-                  },
-                  onClearResult: () => setCsvImportResult(null),
-                }}
-                importCsvState={{
-                  isPending: importCsv.isPending,
-                  onImport: () => importCsv.mutate(),
-                }}
-                importHistoryState={{
-                  isLoading: importHistoryQuery.isLoading,
-                  isError: importHistoryQuery.isError,
-                  isFetching: importHistoryQuery.isFetching,
-                  items: importHistoryQuery.data?.items ?? [],
-                  onRefresh: () => {
-                    void importHistoryQuery.refetch();
-                  },
-                }}
-              />
-            ) : (
-              <StaffPanel currentUserRole={currentUser?.role} stats={stats} />
-            )} 
-          </div>
-        ) : null}
-
-        <div className={showAccountCard ? "space-y-5" : "space-y-0"}>
-          {showAccountCard ? (
-            <Card
-          className="stagger-enter stagger-6"
-          title="Change Password"
-          subtitle="Update your account password after signing in."
-          headerRight={<Pill tone="brand">Account</Pill>}
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <FieldLabel>Current Password</FieldLabel>
-              <Input
-                type="password"
-                placeholder="Enter current password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-              />
+                Overview
+              </Link>
+              <Link
+                to="/panel/events"
+                className="inline-flex h-10 items-center justify-center rounded-xl bg-brand-700 px-4 text-sm font-semibold text-white transition hover:bg-brand-800"
+              >
+                Event Board
+              </Link>
             </div>
-
-            <div>
-              <FieldLabel>New Password</FieldLabel>
-              <Input
-                type="password"
-                placeholder="Enter new password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <FieldLabel>Confirm New Password</FieldLabel>
-              <Input
-                type="password"
-                placeholder="Re-enter new password"
-                value={confirmNewPassword}
-                onChange={(e) => setConfirmNewPassword(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <Button onClick={() => changePassword.mutate()} disabled={changePassword.isPending}>
-              {changePassword.isPending ? "Updating..." : "Change Password"}
-            </Button>
-            {changePasswordMessage ? <p className="text-sm text-slate-600">{changePasswordMessage}</p> : null}
-          </div>
-        </Card>
-          ) : null}
-
-        <div className={showAccountCard ? "mt-5" : ""}>
-        <EventBoardPanel
-          eventsLoading={eventsQuery.isLoading}
-          eventsError={eventsQuery.isError}
-          boardEvents={boardEvents}
-          coverPreviewUrlsByEvent={coverPreviewUrlsByEvent}
-          currentUserRole={currentUser?.role}
-          registerState={{
-            isPending: register.isPending,
-            variables: register.variables,
-            mutate: (eventId: string) => register.mutate(eventId),
-          }}
-          isOverviewMode={viewMode === "overview"}
-          overviewRangeLabel={overviewRangeMeta.label}
-          showViewAll={viewMode === "overview" && orderedPublishedEvents.length > boardEvents.length}
-        />
-        </div>
-        </div>
+          </Card>
+        ) : viewMode === "overview" ? (
+          <OverviewPanel
+            currentUserRole={currentUser?.role}
+            overviewRange={overviewRange}
+            onChangeRange={handleOverviewRangeChange}
+            overviewRangeMeta={overviewRangeMeta}
+            overviewScopedEvents={overviewScopedEvents}
+            overviewUpcomingEvents={overviewUpcomingEvents}
+            overviewRangeDelta={overviewRangeDelta}
+            upcomingCoveragePct={upcomingCoveragePct}
+            nextUpcomingEvent={nextUpcomingEvent}
+            nextEventCountdownLabel={nextEventCountdownLabel}
+            overviewBars={overviewBars}
+            stats={stats}
+          />
+        ) : viewMode === "organizer" ? (
+          <OrganizerPanel
+            eventForm={eventForm}
+            onEventFormChange={(patch) => setEventForm((prev) => ({ ...prev, ...patch }))}
+            createEventState={{
+              isPending: createEvent.isPending,
+              onCreate: () => createEvent.mutate(),
+            }}
+            myEventsState={{
+              isLoading: myEventsQuery.isLoading,
+              isError: myEventsQuery.isError,
+              errorMessage: myEventsQuery.error instanceof Error ? myEventsQuery.error.message : "Failed to load events.",
+            }}
+            draftEvents={draftEvents}
+            myPublishedEvents={myPublishedEvents}
+            coverFilesByEvent={coverFilesByEvent}
+            coverPreviewUrlsByEvent={coverPreviewUrlsByEvent}
+            onCoverFileChange={(eventId, file) => {
+              setCoverFilesByEvent((prev) => ({
+                ...prev,
+                [eventId]: file,
+              }));
+            }}
+            uploadEventCoverState={{
+              isPending: uploadEventCover.isPending,
+              variables: uploadEventCover.variables,
+              onUpload: (eventId) => uploadEventCover.mutate(eventId),
+            }}
+            publishEventState={{
+              isPending: publishEvent.isPending,
+              variables: publishEvent.variables,
+              onPublish: (eventId) => publishEvent.mutate(eventId),
+            }}
+            selectedEventId={selectedEventId}
+            onSelectEventId={(eventId) => dispatch(setSelectedOrganizerEventId(eventId))}
+            staffEmail={staffEmail}
+            onStaffEmailChange={setStaffEmail}
+            assignStaffState={{
+              isPending: assignStaff.isPending,
+              onAssign: () => assignStaff.mutate(),
+            }}
+            staffAssignmentsState={{
+              isLoading: staffAssignmentsQuery.isLoading,
+              isError: staffAssignmentsQuery.isError,
+              isFetching: staffAssignmentsQuery.isFetching,
+              items: staffAssignmentsQuery.data?.items ?? [],
+              onRefresh: () => {
+                void staffAssignmentsQuery.refetch();
+              },
+            }}
+            removeStaffState={{
+              isPending: removeStaff.isPending,
+              onRemove: (userId) => removeStaff.mutate(userId),
+            }}
+            csvState={{
+              file: csvFile,
+              result: csvImportResult,
+              onFileChange: setCsvFile,
+              onClear: () => {
+                setCsvFile(null);
+                setCsvImportResult(null);
+              },
+              onClearResult: () => setCsvImportResult(null),
+            }}
+            importCsvState={{
+              isPending: importCsv.isPending,
+              onImport: () => importCsv.mutate(),
+            }}
+            importHistoryState={{
+              isLoading: importHistoryQuery.isLoading,
+              isError: importHistoryQuery.isError,
+              isFetching: importHistoryQuery.isFetching,
+              items: importHistoryQuery.data?.items ?? [],
+              onRefresh: () => {
+                void importHistoryQuery.refetch();
+              },
+            }}
+          />
+        ) : viewMode === "staff" ? (
+          <StaffPanel currentUserRole={currentUser?.role} stats={stats} />
+        ) : (
+          <EventBoardPanel
+            eventsLoading={eventsQuery.isLoading}
+            eventsError={eventsQuery.isError}
+            boardEvents={orderedPublishedEvents}
+            coverPreviewUrlsByEvent={coverPreviewUrlsByEvent}
+            currentUserRole={currentUser?.role}
+            isOverviewMode={false}
+            overviewRangeLabel={overviewRangeMeta.label}
+            showViewAll={false}
+          />
+        )}
       </section>
       {showWeatherCard && (viewMode === "overview" || viewMode === "events") ? (
         <div className="fixed bottom-5 right-5 z-50 w-[280px] animate-[fadeIn_0.4s_ease-out] rounded-2xl border border-sky-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-600">Live Weather</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-600">Weather</p>
               <h3 className="mt-1 text-lg font-bold text-slate-900">Toronto</h3>
             </div>
             <button
@@ -1028,7 +912,7 @@ export function ControlPanelPage() {
             {weatherQuery.isLoading ? (
               <p className="text-sm text-slate-600">Loading weather...</p>
             ) : weatherQuery.isError ? (
-              <p className="text-sm text-rose-600">Unable to load weather.</p>
+              <p className="text-sm text-rose-600">Weather is unavailable.</p>
             ) : weatherQuery.data ? (
               <>
                 <div className="flex items-center gap-3">
@@ -1039,7 +923,7 @@ export function ControlPanelPage() {
                   </div>
                 </div>
                 <p className="mt-3 text-xs text-slate-500">
-                  Real-time weather from external API integration.
+                  Data from OpenWeather.
                 </p>
               </>
             ) : (

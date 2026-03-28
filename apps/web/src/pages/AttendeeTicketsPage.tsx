@@ -114,12 +114,12 @@ export function AttendeeTicketsPage() {
     return (
       <main className="app-shell mx-auto w-full max-w-4xl px-4 py-6 md:px-8 md:py-10">
         <Card
-          title="Ticket Center"
-          subtitle="Only attendee accounts can open their personal ticket wallet."
-          headerRight={<Pill tone="warm">Access Limited</Pill>}
+          title="My Tickets"
+          subtitle="Only attendee accounts can open this page."
+          headerRight={<Pill tone="warm">Restricted</Pill>}
         >
           <p className="text-sm text-slate-700">
-            This page is reserved for attendee accounts. Switch to an attendee login if you want to view QR tickets.
+            Sign in with an attendee account to view tickets and QR codes.
           </p>
           <div className="mt-4">
             <Link
@@ -141,10 +141,10 @@ export function AttendeeTicketsPage() {
       <section className="stagger-enter rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-brand-900 p-6 text-white md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-200">Attendee Wallet</p>
-            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">My Tickets & QR Codes</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-200">Tickets</p>
+            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">My Tickets</h1>
             <p className="mt-2 text-sm text-slate-200">
-              Keep your active tickets in one place, and open the QR code when staff asks for check-in.
+              View your tickets and QR codes for check-in.
             </p>
           </div>
           <Link
@@ -178,8 +178,8 @@ export function AttendeeTicketsPage() {
       <section className="mt-6 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
         <Card
           className="stagger-enter stagger-1"
-          title="Ticket List"
-          subtitle="Select a ticket to view details and QR code."
+          title="Tickets"
+          subtitle="Select a ticket."
           headerRight={<Pill tone="slate">{currentUser.name}</Pill>}
         >
           {ticketsQuery.isLoading ? (
@@ -221,7 +221,7 @@ export function AttendeeTicketsPage() {
               })
             ) : (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
-                No tickets yet. Register for a published event from the control panel first.
+                No tickets yet.
               </div>
             )}
           </div>
@@ -229,8 +229,8 @@ export function AttendeeTicketsPage() {
 
         <Card
           className="stagger-enter stagger-2"
-          title="Ticket Detail"
-          subtitle="Your QR code can be scanned by staff for event check-in."
+          title="Details"
+          subtitle="Show this QR code at check-in."
           headerRight={
             selectedTicket ? <Pill tone={ticketStatusTone(selectedTicket)}>{ticketStatusText(selectedTicket)}</Pill> : null
           }
@@ -245,7 +245,7 @@ export function AttendeeTicketsPage() {
                   <p className="mt-1 text-sm text-slate-600">{new Date(selectedTicket.event.startTime).toLocaleString()}</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ticket Metadata</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ticket</p>
                   <p className="mt-2 text-sm text-slate-700">Ticket ID: {selectedTicket.id}</p>
                   <p className="mt-1 text-sm text-slate-700">Issued: {new Date(selectedTicket.issuedAt).toLocaleString()}</p>
                   <p className="mt-1 text-sm text-slate-700">
@@ -289,7 +289,7 @@ export function AttendeeTicketsPage() {
                   </div>
                   <div className="rounded-3xl border border-slate-200/80 bg-slate-50 p-5">
                     <p className="text-sm text-slate-700">
-                      Present this QR code at the entrance. Staff can scan it directly, or manually enter your ticket ID as a fallback.
+                      Show this QR code at the entrance. If scanning is unavailable, staff can use the ticket ID.
                     </p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <Pill tone="brand">{selectedTicket.registration?.status ?? "CONFIRMED"}</Pill>
@@ -300,13 +300,13 @@ export function AttendeeTicketsPage() {
                 </div>
               ) : (
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
-                  Select a ticket to load its QR code.
+                  Select a ticket to view the QR code.
                 </div>
               )}
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
-              Choose a ticket from the left panel.
+              Select a ticket.
             </div>
           )}
         </Card>

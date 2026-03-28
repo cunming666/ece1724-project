@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Link } from "react-router-dom";
-import { Button, Card, Pill } from "../ui";
+import { Card, Pill } from "../ui";
 
 type EventItem = {
   id: string;
@@ -18,11 +18,6 @@ type EventBoardPanelProps = {
   boardEvents: EventItem[];
   coverPreviewUrlsByEvent: Record<string, string>;
   currentUserRole?: string;
-  registerState: {
-    isPending: boolean;
-    variables?: string;
-    mutate: (eventId: string) => void;
-  };
   isOverviewMode: boolean;
   overviewRangeLabel: string;
   showViewAll: boolean;
@@ -34,7 +29,6 @@ export const EventBoardPanel = memo(function EventBoardPanel({
   boardEvents,
   coverPreviewUrlsByEvent,
   currentUserRole,
-  registerState,
   isOverviewMode,
   overviewRangeLabel,
   showViewAll,
@@ -42,9 +36,9 @@ export const EventBoardPanel = memo(function EventBoardPanel({
   return (
     <Card
       className="stagger-enter stagger-6"
-      title="Published Event Board"
-      subtitle="Browse public events, register as attendee, or open dashboards for operations roles."
-      headerRight={<Pill tone="slate">Live Feed</Pill>}
+      title="Event Board"
+      subtitle="Published events."
+      headerRight={<Pill tone="slate">Published</Pill>}
     >
       {eventsLoading ? <p className="rounded-xl bg-slate-100/80 px-3 py-2 text-sm text-slate-600">Loading events...</p> : null}
 
@@ -73,17 +67,17 @@ export const EventBoardPanel = memo(function EventBoardPanel({
                   <img src={coverPreviewUrlsByEvent[event.id]} alt={`${event.title} cover`} className="h-36 w-full object-cover" />
                 </div>
               ) : event.coverFileId ? (
-                <p className="mt-3 text-xs text-slate-500">Cover image is available for this event.</p>
+                <p className="mt-3 text-xs text-slate-500">Cover available.</p>
               ) : null}
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                {currentUserRole === "ATTENDEE" ? (
-                  <Button onClick={() => registerState.mutate(event.id)} disabled={registerState.isPending}>
-                    {registerState.isPending && registerState.variables === event.id ? "Submitting..." : "Register"}
-                  </Button>
-                ) : null}
-
                 {(currentUserRole === "ORGANIZER" || currentUserRole === "STAFF") && (
                   <>
+                    <Link
+                      className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
+                      to={`/panel/events/${event.id}/attendees`}
+                    >
+                      View Roster
+                    </Link>
                     <Link
                       className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
                       to={`/panel/events/${event.id}/dashboard`}
@@ -112,7 +106,7 @@ export const EventBoardPanel = memo(function EventBoardPanel({
           ))
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-6 text-center text-sm text-slate-600">
-            {isOverviewMode ? `No events scheduled for ${overviewRangeLabel.toLowerCase()}.` : "No published events yet. Publish one and it will appear here."}
+            {isOverviewMode ? `No events in ${overviewRangeLabel.toLowerCase()}.` : "No published events."}
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Card, Pill } from "../ui";
 
@@ -57,14 +57,6 @@ export const OverviewPanel = memo(function OverviewPanel({
   overviewBars,
   stats,
 }: OverviewPanelProps) {
-  const [isRangeSwitching, setIsRangeSwitching] = useState(false);
-
-  useEffect(() => {
-    setIsRangeSwitching(true);
-    const timer = window.setTimeout(() => setIsRangeSwitching(false), 180);
-    return () => window.clearTimeout(timer);
-  }, [overviewRange]);
-
   const statCards = useMemo(
     () => [
       {
@@ -89,19 +81,19 @@ export const OverviewPanel = memo(function OverviewPanel({
         key: "upcoming",
         label: "Upcoming",
         value: overviewUpcomingEvents.length,
-        helper: <span className="text-xs text-slate-600">{upcomingCoveragePct}% of scheduled events are upcoming.</span>,
+        helper: <span className="text-xs text-slate-600">{upcomingCoveragePct}% of scheduled events.</span>,
       },
       {
         key: "drafts",
         label: "Drafts",
         value: stats.drafts,
-        helper: <span className="text-xs text-slate-600">Ready to publish from Organizer Studio.</span>,
+        helper: <span className="text-xs text-slate-600">Not published yet.</span>,
       },
       {
         key: "tickets",
         label: "Active Tickets",
         value: stats.activeTickets,
-        helper: <span className="text-xs text-slate-600">{stats.checkedInTickets} already checked in.</span>,
+        helper: <span className="text-xs text-slate-600">{stats.checkedInTickets} checked in.</span>,
       },
     ],
     [
@@ -121,8 +113,8 @@ export const OverviewPanel = memo(function OverviewPanel({
     <>
       <Card
         className="stagger-enter stagger-2"
-        title="Overview Snapshot"
-        subtitle="Key numbers first, then drill into role modules."
+        title="Summary"
+        subtitle="Key data for the selected period."
         headerRight={
           <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
             <button
@@ -150,53 +142,39 @@ export const OverviewPanel = memo(function OverviewPanel({
           </div>
         }
       >
-        {isRangeSwitching ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="overview-skeleton">
-            <p data-testid="overview-range-count" className="sr-only">{overviewScopedEvents.length}</p>
-            <p data-testid="overview-upcoming-count" className="sr-only">{overviewUpcomingEvents.length}</p>
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="h-3 w-20 animate-pulse rounded bg-slate-200" />
-                <div className="mt-3 h-8 w-14 animate-pulse rounded bg-slate-200" />
-                <div className="mt-3 h-3 w-28 animate-pulse rounded bg-slate-100" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 transition-opacity duration-200">
-            {statCards.map((card) => (
-              <div key={card.key} className="rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-brand-200">
-                <p className="text-xs uppercase tracking-wide text-slate-500">{card.label}</p>
-                <p data-testid={card.key === "range" ? "overview-range-count" : undefined} className="mt-2 text-3xl font-bold text-slate-900">
-                  {card.value}
-                </p>
-                <div className="mt-2 text-xs font-semibold">{card.helper}</div>
-                {card.key === "upcoming" ? (
-                  <>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                      <div className="h-full rounded-full bg-brand-500 transition-all duration-500" style={{ width: `${upcomingCoveragePct}%` }} />
-                    </div>
-                    <p data-testid="overview-upcoming-count" className="sr-only">
-                      {overviewUpcomingEvents.length}
-                    </p>
-                  </>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 transition-opacity duration-200">
+          {statCards.map((card) => (
+            <div key={card.key} className="rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-brand-200">
+              <p className="text-xs uppercase tracking-wide text-slate-500">{card.label}</p>
+              <p data-testid={card.key === "range" ? "overview-range-count" : undefined} className="mt-2 text-3xl font-bold text-slate-900">
+                {card.value}
+              </p>
+              <div className="mt-2 text-xs font-semibold">{card.helper}</div>
+              {card.key === "upcoming" ? (
+                <>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-full rounded-full bg-brand-500 transition-all duration-500" style={{ width: `${upcomingCoveragePct}%` }} />
+                  </div>
+                  <p data-testid="overview-upcoming-count" className="sr-only">
+                    {overviewUpcomingEvents.length}
+                  </p>
+                </>
+              ) : null}
+            </div>
+          ))}
+        </div>
 
         <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-500">Next Event ({overviewRangeMeta.label})</p>
               <p className="mt-1 text-base font-semibold text-slate-900">
-                {nextUpcomingEvent ? nextUpcomingEvent.title : `No upcoming events in ${overviewRangeMeta.label.toLowerCase()}`}
+                {nextUpcomingEvent ? nextUpcomingEvent.title : `No events in ${overviewRangeMeta.label.toLowerCase()}`}
               </p>
               <p className="mt-1 text-sm text-slate-600">
                 {nextUpcomingEvent
                   ? `${nextUpcomingEvent.location} - ${new Date(nextUpcomingEvent.startTime).toLocaleString()}`
-                  : "Switch range or publish an event to populate this panel."}
+                  : "Change the period or publish an event."}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -222,14 +200,14 @@ export const OverviewPanel = memo(function OverviewPanel({
         </div>
       </Card>
 
-      <Card className="stagger-enter stagger-3" title="Quick Actions" subtitle="Jump to the module you need without searching.">
+      <Card className="stagger-enter stagger-3" title="Shortcuts" subtitle="Open a page directly.">
         <div className="grid gap-2 sm:grid-cols-2">
           {currentUserRole === "ORGANIZER" ? (
             <Link
               to="/panel/organizer"
               className="inline-flex h-11 items-center justify-center rounded-xl bg-brand-700 px-4 text-sm font-semibold text-white transition hover:bg-brand-800"
             >
-              Open Organizer Studio
+              Organizer Studio
             </Link>
           ) : null}
           {(currentUserRole === "ORGANIZER" || currentUserRole === "STAFF") ? (
@@ -237,7 +215,7 @@ export const OverviewPanel = memo(function OverviewPanel({
               to="/panel/staff"
               className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
             >
-              Open Staff Console
+              Staff Console
             </Link>
           ) : null}
           {currentUserRole === "ATTENDEE" ? (
@@ -245,22 +223,22 @@ export const OverviewPanel = memo(function OverviewPanel({
               to="/panel/tickets"
               className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
             >
-              Open My Tickets
+              My Tickets
             </Link>
           ) : null}
           <Link
             to="/panel/events"
             className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-brand-300 hover:text-brand-700"
           >
-            Open Event Board
+            Event Board
           </Link>
         </div>
       </Card>
 
       <Card
         className="stagger-enter stagger-4"
-        title="Upcoming Timeline"
-        subtitle={`Sorted by nearest schedule for ${overviewRangeMeta.label.toLowerCase()}.`}
+        title="Events"
+        subtitle={`Events in ${overviewRangeMeta.label.toLowerCase()}.`}
         headerRight={<Pill tone="slate">{overviewScopedEvents.length}</Pill>}
       >
         <div className="space-y-3">
@@ -278,7 +256,7 @@ export const OverviewPanel = memo(function OverviewPanel({
           ))}
           {!overviewScopedEvents.length ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-              No events scheduled for {overviewRangeMeta.label.toLowerCase()}.
+              No events in {overviewRangeMeta.label.toLowerCase()}.
             </div>
           ) : null}
         </div>

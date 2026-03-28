@@ -36,6 +36,11 @@ const importAttendeesCsvSchema = z
     message: "Either csvText or fileId is required",
   });
 
+const addAttendeeSchema = z.object({
+  name: z.string().trim().min(1),
+  email: z.string().trim().email(),
+});
+
 const csvEmailSchema = z.string().email();
 const importSummarySchema = z.object({
   totalRows: z.number().int().nonnegative(),
@@ -285,6 +290,66 @@ async function getTicketCheckinSummary(ticketId: string) {
     checkedInAt: validCheckin?.checkedInAt ?? null,
     duplicateCount,
   };
+}
+
+async function getTicketCheckinSummaryMap(ticketIds: string[]) {
+  if (!ticketIds.length) {
+    return new Map<
+      string,
+      {
+        checkedIn: boolean;
+        checkedInAt: Date | null;
+        duplicateCount: number;
+      }
+    >();
+  }
+
+  const checkins = await prisma.checkinLog.findMany({
+    where: {
+      ticketId: {
+        in: ticketIds,
+      },
+    },
+    orderBy: {
+      checkedInAt: "desc",
+    },
+  });
+
+  const summaries = new Map<
+    string,
+    {
+      checkedIn: boolean;
+      checkedInAt: Date | null;
+      duplicateCount: number;
+    }
+  >();
+
+  for (const ticketId of ticketIds) {
+    summaries.set(ticketId, {
+      checkedIn: false,
+      checkedInAt: null,
+      duplicateCount: 0,
+    });
+  }
+
+  for (const checkin of checkins) {
+    const current = summaries.get(checkin.ticketId) ?? {
+      checkedIn: false,
+      checkedInAt: null,
+      duplicateCount: 0,
+    };
+
+    if (checkin.isDuplicate) {
+      current.duplicateCount += 1;
+    } else if (!current.checkedIn) {
+      current.checkedIn = true;
+      current.checkedInAt = checkin.checkedInAt;
+    }
+
+    summaries.set(checkin.ticketId, current);
+  }
+
+  return summaries;
 }
 
 async function canDownloadFile(auth: { id: string; role: UserRole }, file: FileObject): Promise<boolean> {
@@ -840,7 +905,7 @@ export function createApiRouter(io: Server) {
         },
         demoScenarios: [
           "Use STAFF account to call POST /api/checkins/manual again with firstTicketId -> duplicate check-in",
-          "Use ATTENDEE 1 account to call DELETE /api/events/:eventId/register -> ATTENDEE 3 promoted from waitlist",
+          "Use ORGANIZER account to call DELETE /api/events/:eventId/attendees/:attendeeId -> ATTENDEE 3 promoted from waitlist",
           "Use ORGANIZER or STAFF account to open GET /api/events/:eventId/dashboard",
         ],
       });
@@ -1036,11 +1101,69 @@ export function createApiRouter(io: Server) {
 
   router.post("/events/:eventId/register", requireAuth(["ATTENDEE"]), async (req, res, next) => {
     try {
-      const attendeeId = res.locals.auth.user.id;
-      const result = await registerForEventTransactional(req.params.eventId, attendeeId);
+      return res.status(403).json({ error: "Self-registration is disabled" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete("/events/:eventId/register", requireAuth(["ATTENDEE"]), async (req, res, next) => {
+    try {
+      return res.status(403).json({ error: "Self-service registration changes are disabled" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/events/:eventId/attendees", requireAuth(["ORGANIZER"]), async (req, res, next) => {
+    try {
+      const access = await assertEventAccess("ORGANIZER", res.locals.auth.user.id, req.params.eventId);
+      if (!access.ok) {
+        return res.status(access.code).json({ error: access.error });
+      }
+
+      if (access.event.status !== "PUBLISHED") {
+        return res.status(409).json({ error: "Event must be published before adding attendees" });
+      }
+
+      const body = addAttendeeSchema.parse(req.body);
+      const normalizedEmail = body.email.trim().toLowerCase();
+
+      let attendee = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+
+      let createdAccount = false;
+      if (!attendee) {
+        const defaultPassword = await bcrypt.hash("pass1234", 10);
+        attendee = await prisma.user.create({
+          data: {
+            email: normalizedEmail,
+            name: body.name.trim(),
+            passwordHash: defaultPassword,
+            role: "ATTENDEE",
+          },
+        });
+        createdAccount = true;
+      } else if (attendee.role !== "ATTENDEE") {
+        return res.status(409).json({ error: "User is not an attendee account" });
+      }
+
+      const result = await registerForEventTransactional(req.params.eventId, attendee.id);
 
       await emitAttendance(io, result.eventId);
-      res.status(201).json({ registration: result.registration, ticket: result.ticket });
+      return res.status(201).json({
+        registration: result.registration,
+        ticket: result.ticket,
+        attendee: {
+          id: attendee.id,
+          name: attendee.name,
+          email: attendee.email,
+          role: attendee.role,
+        },
+        createdAccount,
+        defaultPassword: createdAccount ? "pass1234" : null,
+      });
     } catch (error) {
       if (error instanceof HttpError) {
         return res.status(error.status).json({ error: error.message, code: error.code });
@@ -1049,21 +1172,23 @@ export function createApiRouter(io: Server) {
     }
   });
 
-  router.delete("/events/:eventId/register", requireAuth(["ATTENDEE"]), async (req, res, next) => {
+  router.delete("/events/:eventId/attendees/:attendeeId", requireAuth(["ORGANIZER"]), async (req, res, next) => {
     try {
-      const attendeeId = res.locals.auth.user.id;
-      const eventId = req.params.eventId;
+      const access = await assertEventAccess("ORGANIZER", res.locals.auth.user.id, req.params.eventId);
+      if (!access.ok) {
+        return res.status(access.code).json({ error: access.error });
+      }
 
-      const { promotedAttendeeId } = await cancelRegistrationTransactional(eventId, attendeeId);
+      const { promotedAttendeeId } = await cancelRegistrationTransactional(req.params.eventId, req.params.attendeeId);
 
       if (promotedAttendeeId) {
-        io.to(eventId).emit("waitlist:promoted", {
-          eventId,
+        io.to(req.params.eventId).emit("waitlist:promoted", {
+          eventId: req.params.eventId,
           attendeeId: promotedAttendeeId,
         });
       }
 
-      await emitAttendance(io, eventId);
+      await emitAttendance(io, req.params.eventId);
       res.status(204).send();
     } catch (error) {
       if (error instanceof HttpError) {
@@ -1218,11 +1343,52 @@ export function createApiRouter(io: Server) {
           })
         : [];
 
+      const tickets: Ticket[] = userIds.length
+        ? await prisma.ticket.findMany({
+            where: {
+              eventId: req.params.eventId,
+              attendeeId: { in: userIds },
+            },
+          })
+        : [];
+
       const userMap = new Map<string, User>(users.map((user) => [user.id, user]));
+      const ticketMap = new Map<string, Ticket>(tickets.map((ticket) => [ticket.attendeeId, ticket]));
+      const ticketCheckinSummaryMap = await getTicketCheckinSummaryMap(tickets.map((ticket) => ticket.id));
 
       const attendees = registrations.map((registration) => ({
         ...registration,
         attendee: userMap.get(registration.attendeeId) ?? null,
+        ticket: (() => {
+          const ticket = ticketMap.get(registration.attendeeId);
+          if (!ticket) {
+            return null;
+          }
+
+          return {
+            id: ticket.id,
+            issuedAt: ticket.issuedAt,
+            revokedAt: ticket.revokedAt,
+          };
+        })(),
+        checkin: (() => {
+          const ticket = ticketMap.get(registration.attendeeId);
+          if (!ticket) {
+            return {
+              checkedIn: false,
+              checkedInAt: null,
+              duplicateCount: 0,
+            };
+          }
+
+          return (
+            ticketCheckinSummaryMap.get(ticket.id) ?? {
+              checkedIn: false,
+              checkedInAt: null,
+              duplicateCount: 0,
+            }
+          );
+        })(),
       }));
 
       res.json({ items: attendees });

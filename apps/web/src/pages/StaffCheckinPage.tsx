@@ -87,8 +87,8 @@ function formatDateTime(value?: string | null) {
 
 function formatCheckinNote(result: CheckinResult) {
   return result.isDuplicate
-    ? `Duplicate ${result.mode.toLowerCase()} check-in recorded for ticket ${result.ticketId}.`
-    : `${result.mode === "QR" ? "QR" : "Manual"} check-in succeeded for ticket ${result.ticketId}.`;
+    ? `Duplicate ${result.mode.toLowerCase()} check-in for ticket ${result.ticketId}.`
+    : `Check-in complete for ticket ${result.ticketId}.`;
 }
 
 async function loadHtml5QrModule() {
@@ -353,12 +353,12 @@ export function StaffCheckinPage() {
     return (
       <main className="app-shell mx-auto w-full max-w-4xl px-4 py-6 md:px-8 md:py-10">
         <Card
-          title="Check-in Workstation"
-          subtitle="Only organizer and staff accounts can run event check-ins."
-          headerRight={<Pill tone="warm">Access Limited</Pill>}
+          title="Check-in"
+          subtitle="Only organizer and staff accounts can open this page."
+          headerRight={<Pill tone="warm">Restricted</Pill>}
         >
           <p className="text-sm text-slate-700">
-            Switch to an organizer or staff account to access live QR scanning and manual check-in tools.
+            Sign in with an organizer or staff account to use check-in.
           </p>
           <div className="mt-4">
             <Link
@@ -380,10 +380,10 @@ export function StaffCheckinPage() {
       <section className="stagger-enter rounded-3xl border border-slate-700 bg-slate-950 p-6 text-white shadow-[0_22px_40px_-26px_rgba(15,23,42,0.9)] md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-200">Check-in Workstation</p>
-            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">Live Staff Check-in Console</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-200">Event</p>
+            <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight md:text-4xl">Check-in</h1>
             <p className="mt-2 text-sm text-slate-200">
-              Scan attendee QR codes with the camera, or enter a ticket ID manually when a fallback is needed.
+              Scan a QR code or enter a ticket ID.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -393,6 +393,14 @@ export function StaffCheckinPage() {
             >
               Back to Panel
             </Link>
+            {eventId ? (
+              <Link
+                to={`/panel/events/${eventId}/attendees`}
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/20"
+              >
+                View Roster
+              </Link>
+            ) : null}
             {eventId ? (
               <Link
                 to={`/panel/events/${eventId}/dashboard`}
@@ -434,9 +442,9 @@ export function StaffCheckinPage() {
         <div className="space-y-5">
           <Card
             className="stagger-enter stagger-1"
-            title="QR Camera Scan"
-            subtitle="Use the attendee QR wallet for the fastest on-site check-in flow."
-            headerRight={<Pill tone={isScannerActive ? "brand" : "slate"}>{isScannerActive ? "Camera Live" : "Ready"}</Pill>}
+            title="QR Scan"
+            subtitle="Use the camera to scan a ticket."
+            headerRight={<Pill tone={isScannerActive ? "brand" : "slate"}>{isScannerActive ? "Active" : "Ready"}</Pill>}
           >
             <div className="space-y-4">
               <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
@@ -449,7 +457,7 @@ export function StaffCheckinPage() {
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                   {!isScannerActive ? (
                     <div className="mb-3 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500">
-                      Camera preview will appear here after you start scanning.
+                      Camera preview appears here after scanning starts.
                     </div>
                   ) : null}
 
@@ -473,16 +481,16 @@ export function StaffCheckinPage() {
                   Stop Camera
                 </Button>
                 <Button variant="secondary" onClick={() => dashboardQuery.refetch()} disabled={dashboardQuery.isFetching || !eventId}>
-                  {dashboardQuery.isFetching ? "Refreshing..." : "Refresh Check-in Feed"}
+                  {dashboardQuery.isFetching ? "Refreshing..." : "Refresh"}
                 </Button>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-700">
-                <p className="font-semibold text-slate-900">Camera tips</p>
+                <p className="font-semibold text-slate-900">Tips</p>
                 <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                  <li>1. Let the browser access your camera when prompted.</li>
-                  <li>2. Ask the attendee to open the QR code from the ticket wallet page.</li>
-                  <li>3. After one successful scan, the camera stops automatically to avoid duplicate reads.</li>
+                  <li>1. Allow camera access in the browser.</li>
+                  <li>2. Ask the attendee to open the QR code.</li>
+                  <li>3. The camera stops after one successful scan.</li>
                 </ul>
               </div>
             </div>
@@ -490,8 +498,8 @@ export function StaffCheckinPage() {
 
           <Card
             className="stagger-enter stagger-2"
-            title="Manual Ticket Fallback"
-            subtitle="Use this when the attendee QR code cannot be scanned clearly."
+            title="Manual Entry"
+            subtitle="Use this when QR scanning is unavailable."
             headerRight={<Pill tone="warm">Fallback</Pill>}
           >
             <div className="space-y-4">
@@ -503,7 +511,7 @@ export function StaffCheckinPage() {
                   onChange={(event) => setManualTicketId(event.target.value)}
                 />
                 <p className="mt-2 text-xs text-slate-500">
-                  The attendee can copy the ticket ID directly from the ticket wallet page if QR scanning is unavailable.
+                  The attendee can copy the ticket ID from My Tickets.
                 </p>
               </div>
 
@@ -513,7 +521,7 @@ export function StaffCheckinPage() {
                   onClick={() => manualCheckin.mutate(manualTicketId.trim())}
                   disabled={!manualTicketId.trim() || manualCheckin.isPending}
                 >
-                  {manualCheckin.isPending ? "Submitting manual check-in..." : "Submit Manual Check-in"}
+                  {manualCheckin.isPending ? "Submitting..." : "Check In"}
                 </Button>
                 <Button variant="ghost" onClick={() => setManualTicketId("")} disabled={!manualTicketId}>
                   Clear
@@ -524,8 +532,8 @@ export function StaffCheckinPage() {
 
           <Card
             className="stagger-enter stagger-3"
-            title="Latest Action"
-            subtitle="Review the most recent check-in response before moving to the next attendee."
+            title="Last Result"
+            subtitle="Most recent check-in."
             headerRight={lastResult ? <Pill tone={lastResult.isDuplicate ? "warm" : "brand"}>{lastResult.isDuplicate ? "Duplicate" : "Accepted"}</Pill> : null}
           >
             {scannerMessage ? (
@@ -550,7 +558,7 @@ export function StaffCheckinPage() {
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
-                No check-in action has been submitted yet.
+                No check-in yet.
               </div>
             )}
           </Card>
@@ -559,8 +567,8 @@ export function StaffCheckinPage() {
         <div className="space-y-5">
           <Card
             className="stagger-enter stagger-4"
-            title="Event Context"
-            subtitle="Use the event summary below to confirm you are checking attendees into the correct session."
+            title="Event"
+            subtitle="Confirm the event before checking people in."
             headerRight={event ? <Pill tone="brand">{event.status}</Pill> : null}
           >
             {eventQuery.isLoading ? (
@@ -576,7 +584,7 @@ export function StaffCheckinPage() {
                   <p className="mt-1 text-sm text-slate-600">{formatDateTime(event.startTime)}</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Attendance Snapshot</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Attendance</p>
                   <p className="mt-2 text-sm text-slate-700">Capacity: {dashboard?.capacity ?? event.capacity}</p>
                   <p className="mt-1 text-sm text-slate-700">Confirmed: {dashboard?.confirmed ?? 0}</p>
                   <p className="mt-1 text-sm text-slate-700">Checked In: {dashboard?.checkedIn ?? 0}</p>
@@ -585,7 +593,7 @@ export function StaffCheckinPage() {
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-4 py-8 text-center text-sm text-slate-600">
-                Event context is unavailable.
+                Event data is unavailable.
               </div>
             )}
           </Card>
@@ -593,7 +601,7 @@ export function StaffCheckinPage() {
           <Card
             className="stagger-enter stagger-5"
             title="Recent Check-ins"
-            subtitle="The newest scans and manual entries appear here after each refresh."
+            subtitle="Latest QR and manual entries."
             headerRight={<Pill tone="slate">{recentCheckins.length}</Pill>}
           >
             <div className="space-y-3">
@@ -624,7 +632,7 @@ export function StaffCheckinPage() {
           <Card
             className="stagger-enter stagger-6"
             title="Attendee Snapshot"
-            subtitle="Use this quick list to confirm who should still be waiting to enter."
+            subtitle="Confirmed attendees."
             headerRight={<Pill tone="slate">{confirmedAttendees.length} confirmed</Pill>}
           >
             <div className="space-y-3">
@@ -649,7 +657,7 @@ export function StaffCheckinPage() {
 
             <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-900">Waitlist Preview</p>
+                <p className="text-sm font-semibold text-slate-900">Waitlist</p>
                 <Pill tone="warm">{waitlistedAttendees.length}</Pill>
               </div>
               {waitlistedAttendees.length ? (

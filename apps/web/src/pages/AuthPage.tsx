@@ -135,24 +135,23 @@ export function AuthPage() {
       <div className="hero-glow" />
 
       <section className="stagger-enter auth-hero-panel rounded-3xl border border-slate-200 bg-white p-7 text-slate-900 shadow-sm md:p-10">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-700">ECE1724 Project 3</p>
-        <h1 className="mt-3 font-heading text-4xl font-bold leading-tight tracking-tight">Sign In First, Then Enter Control Panel</h1>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-700">ECE1724 Project</p>
+        <h1 className="mt-3 font-heading text-4xl font-bold leading-tight tracking-tight">Event Console</h1>
         <p className="mt-4 max-w-xl text-sm text-slate-600 md:text-base">
-          Complete authentication first, then enter the event control panel. You can sign in with an existing account,
-          register a new account, or click the quick demo button to seed demo data and sign in instantly.
+          Sign in to continue. You can also create an account or load the demo data.
         </p>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-600">Entry Flow</p>
-            <p className="mt-1 text-lg font-semibold">Auth - Panel - Dashboard</p>
+            <p className="text-xs text-slate-600">Access</p>
+            <p className="mt-1 text-lg font-semibold">Sign in or register</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-600">Demo Support</p>
-            <p className="mt-1 text-lg font-semibold">One-click Demo Seed</p>
+            <p className="text-xs text-slate-600">Demo</p>
+            <p className="mt-1 text-lg font-semibold">Load demo data</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs text-slate-600">Access Model</p>
+            <p className="text-xs text-slate-600">Roles</p>
             <p className="mt-1 text-lg font-semibold">Organizer / Staff / Attendee</p>
           </div>
         </div>
@@ -160,9 +159,9 @@ export function AuthPage() {
 
       <Card
         className="stagger-enter stagger-2 auth-form-card"
-        title={mode === "signin" ? "Login" : "Create Account"}
-        subtitle={mode === "signin" ? "Use your account to continue to the control panel." : "Register first, then sign in to continue."}
-        headerRight={<Pill tone="brand">{mode === "signin" ? "Auth First" : "New User"}</Pill>}
+        title={mode === "signin" ? "Sign In" : "Create Account"}
+        subtitle={mode === "signin" ? "Enter your account details." : "Create a new account."}
+        headerRight={<Pill tone="brand">{mode === "signin" ? "Account" : "New"}</Pill>}
       >
         <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
           <button
@@ -193,16 +192,16 @@ export function AuthPage() {
         ) : null}
 
         <Button className="auth-demo-btn mb-4 w-full" variant="secondary" onClick={() => quickDemo.mutate()} disabled={quickDemo.isPending}>
-          {quickDemo.isPending ? "Preparing Demo..." : "Quick Start Demo (Organizer)"}
+          {quickDemo.isPending ? "Loading Demo..." : "Load Demo (Organizer)"}
         </Button>
 
         <p className="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
-          Quick demo creates seeded data and signs in automatically. Use this for instant presentation flow.
+          Loads demo data and signs in as the organizer account.
         </p>
 
         <div className="mb-4 flex gap-2">
-          <Pill tone="brand">Role-based Entry</Pill>
-          <Pill tone="slate">Reusable Demo</Pill>
+          <Pill tone="brand">Sign In</Pill>
+          <Pill tone="slate">Demo</Pill>
         </div>
 
         {notice ? (
@@ -246,13 +245,13 @@ export function AuthPage() {
             </div>
 
             <Button type="submit" className="h-11 w-full" disabled={signIn.isPending}>
-              {signIn.isPending ? "Signing In..." : "Sign In and Enter Control Panel"}
+              {signIn.isPending ? "Signing In..." : "Sign In"}
             </Button>
 
             <div className="rounded-xl bg-slate-100/80 px-3 py-2 text-xs text-slate-700">
-              Do not have an account?
+              No account?
               <button type="button" className="ml-1 font-semibold text-brand-700 underline" onClick={() => switchMode("signup")}>
-                Register now
+                Register
               </button>
             </div>
           </form>
@@ -305,7 +304,7 @@ export function AuthPage() {
             <div className="rounded-xl bg-slate-100/80 px-3 py-2 text-xs text-slate-700">
               Already have an account?
               <button type="button" className="ml-1 font-semibold text-brand-700 underline" onClick={() => switchMode("signin")}>
-                Back to Sign In
+                Sign In
               </button>
             </div>
           </form>

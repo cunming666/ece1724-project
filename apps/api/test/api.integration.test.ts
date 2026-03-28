@@ -29,6 +29,21 @@ async function signUpAndSignIn(input: {
   };
 }
 
+function addAttendeeToEvent(input: {
+  organizerToken: string;
+  eventId: string;
+  name: string;
+  email: string;
+}) {
+  return api
+    .post(`/api/events/${input.eventId}/attendees`)
+    .set("Authorization", `Bearer ${input.organizerToken}`)
+    .send({
+      name: input.name,
+      email: input.email,
+    });
+}
+
 beforeEach(async () => {
   await prisma.checkinLog.deleteMany();
   await prisma.ticket.deleteMany();
@@ -90,6 +105,46 @@ describe("Auth API", () => {
 
     await api.get("/auth/session").set("Authorization", `Bearer ${token}`).expect(401);
   });
+
+  test("supports updating the signed-in user's name and email", async () => {
+    const organizer = await signUpAndSignIn({
+      email: "profile@utoronto.ca",
+      name: "Original Name",
+      role: "ORGANIZER",
+    });
+
+    await signUpAndSignIn({
+      email: "taken@utoronto.ca",
+      name: "Taken User",
+      role: "ATTENDEE",
+    });
+
+    const updated = await api
+      .patch("/auth/profile")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        name: "Updated Name",
+        email: "updated@utoronto.ca",
+      })
+      .expect(200);
+
+    expect(updated.body.message).toBe("Account updated successfully");
+    expect(updated.body.user.name).toBe("Updated Name");
+    expect(updated.body.user.email).toBe("updated@utoronto.ca");
+
+    const session = await api.get("/auth/session").set("Authorization", `Bearer ${organizer.token}`).expect(200);
+    expect(session.body.name).toBe("Updated Name");
+    expect(session.body.email).toBe("updated@utoronto.ca");
+
+    await api
+      .patch("/auth/profile")
+      .set("Authorization", `Bearer ${organizer.token}`)
+      .send({
+        name: "Another Name",
+        email: "taken@utoronto.ca",
+      })
+      .expect(409);
+  });
 });
 
 describe("Demo bootstrap", () => {
@@ -102,8 +157,8 @@ describe("Demo bootstrap", () => {
   });
 });
 
-describe("Event registration and waitlist", () => {
-  test("supports publish, registration, waitlist, and promotion", async () => {
+describe("Organizer-managed roster and waitlist", () => {
+  test("supports organizer add, waitlist, and promotion", async () => {
     const organizer = await signUpAndSignIn({
       email: "org+wait@utoronto.ca",
       name: "Org Waitlist",
@@ -141,19 +196,29 @@ describe("Event registration and waitlist", () => {
     const list = await api.get("/api/events").expect(200);
     expect(list.body.items).toHaveLength(1);
 
-    const regA = await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendeeA.token}`).expect(201);
+    const regA = await addAttendeeToEvent({
+      organizerToken: organizer.token,
+      eventId,
+      name: attendeeA.user.name,
+      email: attendeeA.user.email,
+    }).expect(201);
     expect(regA.body.registration.status).toBe("CONFIRMED");
     expect(regA.body.ticket).toBeTruthy();
 
-    const regB = await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendeeB.token}`).expect(201);
+    const regB = await addAttendeeToEvent({
+      organizerToken: organizer.token,
+      eventId,
+      name: attendeeB.user.name,
+      email: attendeeB.user.email,
+    }).expect(201);
     expect(regB.body.registration.status).toBe("WAITLISTED");
     expect(regB.body.ticket).toBeNull();
 
-    await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendeeB.token}`).expect(409);
+    await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendeeB.token}`).expect(403);
 
     await api.get(`/api/events/${eventId}/attendees`).set("Authorization", `Bearer ${attendeeA.token}`).expect(403);
 
-    await api.delete(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendeeA.token}`).expect(204);
+    await api.delete(`/api/events/${eventId}/attendees/${attendeeA.user.id}`).set("Authorization", `Bearer ${organizer.token}`).expect(204);
 
     const attendees = await api.get(`/api/events/${eventId}/attendees`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
 
@@ -333,7 +398,12 @@ describe("Organizer and attendee workspace APIs", () => {
 
     await api.post(`/api/events/${eventId}/publish`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
 
-    const registration = await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendee.token}`).expect(201);
+    const registration = await addAttendeeToEvent({
+      organizerToken: organizer.token,
+      eventId,
+      name: attendee.user.name,
+      email: attendee.user.email,
+    }).expect(201);
 
     const ticketId = registration.body.ticket.id as string;
 
@@ -398,7 +468,12 @@ describe("Check-in idempotency and RBAC", () => {
       .send({ email: staff.user.email })
       .expect(201);
 
-    const registration = await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendee.token}`).expect(201);
+    const registration = await addAttendeeToEvent({
+      organizerToken: organizer.token,
+      eventId,
+      name: attendee.user.name,
+      email: attendee.user.email,
+    }).expect(201);
 
     const ticketId = registration.body.ticket.id as string;
     expect(ticketId).toBeTruthy();
@@ -477,7 +552,12 @@ describe("CSV attendee import", () => {
 
     await api.post(`/api/events/${eventId}/publish`).set("Authorization", `Bearer ${organizer.token}`).expect(200);
 
-    await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${existingAttendee.token}`).expect(201);
+    await addAttendeeToEvent({
+      organizerToken: organizer.token,
+      eventId,
+      name: existingAttendee.user.name,
+      email: existingAttendee.user.email,
+    }).expect(201);
 
     const csvText = [
       "name,email",
@@ -653,10 +733,19 @@ describe("RBAC matrix regression", () => {
       .send({ email: staff.user.email })
       .expect(201);
 
-    const registration = await api
-      .post(`/api/events/${eventId}/register`)
-      .set("Authorization", `Bearer ${attendee.token}`)
-      .expect(201);
+    await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendee.token}`).expect(403);
+    await api
+      .post(`/api/events/${eventId}/attendees`)
+      .set("Authorization", `Bearer ${staff.token}`)
+      .send({ name: attendee.user.name, email: attendee.user.email })
+      .expect(403);
+
+    const registration = await addAttendeeToEvent({
+      organizerToken: organizer.token,
+      eventId,
+      name: attendee.user.name,
+      email: attendee.user.email,
+    }).expect(201);
 
     const ticketId = registration.body.ticket.id as string;
 
@@ -714,7 +803,12 @@ describe("Check-in concurrency consistency", () => {
       .send({ email: staff.user.email })
       .expect(201);
 
-    const registration = await api.post(`/api/events/${eventId}/register`).set("Authorization", `Bearer ${attendee.token}`).expect(201);
+    const registration = await addAttendeeToEvent({
+      organizerToken: organizer.token,
+      eventId,
+      name: attendee.user.name,
+      email: attendee.user.email,
+    }).expect(201);
     const ticketId = registration.body.ticket.id as string;
 
     await Promise.all([

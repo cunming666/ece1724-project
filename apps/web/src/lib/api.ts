@@ -2,6 +2,10 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:40
 
 export interface ApiErrorEnvelope {
   error?: string | { code?: string; message?: string };
+  details?: {
+    formErrors?: string[];
+    fieldErrors?: Record<string, string[] | undefined>;
+  };
   requestId?: string;
 }
 
@@ -33,9 +37,20 @@ function getErrorMessage(payload: ApiErrorEnvelope): string {
     return payload.error;
   }
 
+  const firstFieldError = payload.details
+    ? Object.values(payload.details.fieldErrors ?? {}).flat().find((item) => typeof item === "string" && item.trim().length > 0)
+    : undefined;
+  if (firstFieldError) {
+    return firstFieldError;
+  }
+
+  const firstFormError = payload.details?.formErrors?.find((item) => typeof item === "string" && item.trim().length > 0);
+  if (firstFormError) {
+    return firstFormError;
+  }
+
   if (payload.error && typeof payload.error === "object" && typeof payload.error.message === "string" && payload.error.message.trim()) {
-    const requestIdSuffix = payload.requestId ? ` (requestId: ${payload.requestId})` : "";
-    return `${payload.error.message}${requestIdSuffix}`;
+    return payload.error.message;
   }
 
   return "Request failed";

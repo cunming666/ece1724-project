@@ -171,12 +171,16 @@ export function createApp() {
     const requestId = String(res.locals.requestId ?? "unknown");
 
     if (error instanceof ZodError) {
+      const flattened = error.flatten();
+      const firstFieldError = Object.values(flattened.fieldErrors).flat().find((item) => typeof item === "string" && item.trim().length > 0);
+      const firstFormError = flattened.formErrors.find((item) => typeof item === "string" && item.trim().length > 0);
+
       return res.status(400).json({
         error: {
           code: "VALIDATION_ERROR",
-          message: "Validation error",
+          message: firstFieldError ?? firstFormError ?? "Please check the submitted fields.",
         },
-        details: error.flatten(),
+        details: flattened,
         requestId,
       });
     }

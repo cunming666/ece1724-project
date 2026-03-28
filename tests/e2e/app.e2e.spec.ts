@@ -15,11 +15,27 @@ type EventResponse = {
   title: string;
 };
 
-type RegisterResponse = {
-  ticket: { id: string } | null;
+type SignInResponse = {
+  token: string;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    role: "ORGANIZER" | "STAFF" | "ATTENDEE";
+  };
 };
 
-const API_BASE_URL = process.env.E2E_API_URL ?? "http://127.0.0.1:4000";
+type AddAttendeeResponse = {
+  registration: {
+    status: "CONFIRMED" | "WAITLISTED";
+  };
+  ticket: { id: string } | null;
+  createdAccount: boolean;
+  defaultPassword: string | null;
+};
+
+const API_BASE_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
+const E2E_BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:4173";
 const PASSWORD = "pass1234";
 
 async function bootstrapDemo(request: APIRequestContext): Promise<BootstrapResponse> {
@@ -55,7 +71,47 @@ async function createAndPublishEvent(request: APIRequestContext, organizerToken:
 
   return created;
 }
+async function signUpAndSignIn(
+  request: APIRequestContext,
+  input: { email: string; name: string; role: "ORGANIZER" | "STAFF" | "ATTENDEE" },
+): Promise<SignInResponse> {
+  const signUpResponse = await request.post(`${API_BASE_URL}/auth/sign-up`, {
+    data: {
+      email: input.email,
+      name: input.name,
+      password: PASSWORD,
+      role: input.role,
+    },
+  });
+  expect(signUpResponse.ok()).toBeTruthy();
 
+  const signInResponse = await request.post(`${API_BASE_URL}/auth/sign-in`, {
+    data: {
+      email: input.email,
+      password: PASSWORD,
+    },
+  });
+  expect(signInResponse.ok()).toBeTruthy();
+  return (await signInResponse.json()) as SignInResponse;
+}
+
+async function addAttendeeToEvent(
+  request: APIRequestContext,
+  input: { organizerToken: string; eventId: string; name: string; email: string },
+): Promise<AddAttendeeResponse> {
+  const response = await request.post(`${API_BASE_URL}/api/events/${input.eventId}/attendees`, {
+    headers: {
+      Authorization: `Bearer ${input.organizerToken}`,
+      "Content-Type": "application/json",
+    },
+    data: {
+      name: input.name,
+      email: input.email,
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as AddAttendeeResponse;
+}
 
 async function createAndPublishEventAt(
   request: APIRequestContext,
@@ -89,26 +145,37 @@ async function createAndPublishEventAt(
 
   return created;
 }
+
+async function openWithSession(page: Page, token: string, path = "/panel"): Promise<void> {
+  await page.addInitScript((sessionToken) => {
+    window.localStorage.setItem("sessionToken", sessionToken);
+  }, token);
+
+  await page.goto(path);
+}
+
 async function signInFromAuthPage(page: Page, email: string, password: string): Promise<void> {
   await page.goto("/auth");
   await page.getByPlaceholder("name@mail.utoronto.ca").fill(email);
   await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Sign In and Enter Control Panel" }).click();
+  await page.locator("form").getByRole("button", { name: "Sign In" }).click();
   await expect(page).toHaveURL(/\/panel(?:\?range=(?:today|week))?$/);
-  await expect(page.getByRole("heading", { name: "Event Operations Workspace" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
 }
 
 test("root path redirects to auth page", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/auth$/);
-  await expect(page.getByRole("heading", { name: "Sign In First, Then Enter Control Panel" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Event Console" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign In" })).toBeVisible();
 });
 
 test("auth flow: sign up, sign in, quick demo entry", async ({ page }) => {
   const email = `e2e.auth.${Date.now()}@utoronto.ca`;
 
   await page.goto("/auth");
-  await expect(page.getByRole("heading", { name: "Sign In First, Then Enter Control Panel" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Event Console" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign In" })).toBeVisible();
 
   await page.getByRole("button", { name: "Register" }).first().click();
   const signUpEmailInput = page.getByPlaceholder("name@mail.utoronto.ca");
@@ -121,17 +188,19 @@ test("auth flow: sign up, sign in, quick demo entry", async ({ page }) => {
   await expect(page.getByText("Registration successful. Please sign in with your new account.")).toBeVisible();
 
   await page.getByPlaceholder("Password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Sign In and Enter Control Panel" }).click();
+  await page.locator("form").getByRole("button", { name: "Sign In" }).click();
 
   await expect(page).toHaveURL(/\/panel(?:\?range=(?:today|week))?$/);
-  await expect(page.getByRole("heading", { name: "Event Operations Workspace" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
+  await expect(page.getByText("E2E Auth User").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Sign Out" }).click();
   await expect(page).toHaveURL(/\/auth$/);
 
-  await page.getByRole("button", { name: "Quick Start Demo" }).click();
+  await page.getByRole("button", { name: "Load Demo (Organizer)" }).click();
   await expect(page).toHaveURL(/\/panel(?:\?range=(?:today|week))?$/);
-  await expect(page.getByText("Logged in as Demo Organizer (ORGANIZER)")).toBeVisible();
+  await expect(page.getByText("Demo Organizer").first()).toBeVisible();
+  await expect(page.getByText("ORGANIZER").first()).toBeVisible();
 });
 
 
@@ -140,7 +209,9 @@ test("navigation order is consistent between sidebar and quick nav", async ({ pa
   const organizer = bootstrap.accounts.find((account) => account.role === "ORGANIZER");
   expect(organizer).toBeTruthy();
 
-  await signInFromAuthPage(page, organizer!.email, organizer!.password);
+  await openWithSession(page, organizer!.token);
+  await expect(page).toHaveURL(/\/panel(?:\?range=(?:today|week))?$/);
+  await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
 
   const sidebarLabels = (await page.locator('[data-testid="panel-sidebar-nav"] a').allTextContents())
     .map((value) => value.trim())
@@ -153,6 +224,7 @@ test("navigation order is consistent between sidebar and quick nav", async ({ pa
 
   await page.locator('[data-testid="panel-quick-nav"] a').filter({ hasText: "Event Board" }).click();
   await expect(page).toHaveURL(/\/panel\/events$/);
+  await expect(page.getByRole("heading", { name: "Event Board" }).first()).toBeVisible();
 });
 
 test("overview Today/Week switch updates scoped metrics", async ({ page, request }) => {
@@ -194,7 +266,9 @@ test("overview Today/Week switch updates scoped metrics", async ({ page, request
     return time >= rangeStart.getTime() && time < weekEnd.getTime();
   }).length;
 
-  await signInFromAuthPage(page, organizer!.email, organizer!.password);
+  await openWithSession(page, organizer!.token);
+  await expect(page).toHaveURL(/\/panel(?:\?range=(?:today|week))?$/);
+  await expect(page.getByTestId("overview-range-week")).toBeVisible();
 
   await page.getByTestId("overview-range-today").click();
   const todayCount = Number.parseInt((await page.getByTestId("overview-range-count").innerText()).trim(), 10);
@@ -205,43 +279,58 @@ test("overview Today/Week switch updates scoped metrics", async ({ page, request
   expect(weekCount).toBe(weekExpected);
   expect(weekCount).toBeGreaterThanOrEqual(todayCount);
 });
-test("attendee flow: register event then view QR ticket", async ({ page, request }) => {
+
+test("organizer roster add flow gives attendee a ticket", async ({ browser, request }) => {
   const bootstrap = await bootstrapDemo(request);
   const organizer = bootstrap.accounts.find((account) => account.role === "ORGANIZER");
   expect(organizer).toBeTruthy();
 
-  const eventTitle = `E2E Ticket Event ${Date.now()}`;
-  await createAndPublishEvent(request, organizer!.token, eventTitle);
-
   const attendeeEmail = `e2e.attendee.${Date.now()}@utoronto.ca`;
+  const attendeeName = "E2E Attendee";
+  const attendee = await signUpAndSignIn(request, {
+    email: attendeeEmail,
+    name: attendeeName,
+    role: "ATTENDEE",
+  });
+  const eventTitle = `E2E Ticket Event ${Date.now()}`;
+  const event = await createAndPublishEvent(request, organizer!.token, eventTitle);
 
-  await page.goto("/auth");
-  await page.getByRole("button", { name: "Register" }).first().click();
-  await page.getByPlaceholder("name@mail.utoronto.ca").fill(attendeeEmail);
-  await page.getByPlaceholder("Full name").fill("E2E Attendee");
-  await page.getByPlaceholder("At least 6 characters").fill(PASSWORD);
-  await page.locator("select").selectOption("ATTENDEE");
-  await page.getByRole("button", { name: "Create Account" }).click();
+  const organizerContext = await browser.newContext({ baseURL: E2E_BASE_URL });
+  await organizerContext.addInitScript((token) => {
+    window.localStorage.setItem("sessionToken", token);
+  }, organizer!.token);
+  const organizerPage = await organizerContext.newPage();
 
-  await page.getByPlaceholder("Password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Sign In and Enter Control Panel" }).click();
-  await expect(page).toHaveURL(/\/panel(?:\?range=(?:today|week))?$/);
+  await organizerPage.goto(`/panel/events/${event.id}/attendees`);
+  await expect(organizerPage.getByRole("heading", { name: "Roster" }).first()).toBeVisible();
+  await organizerPage.getByPlaceholder("Full name").fill(attendeeName);
+  await organizerPage.getByPlaceholder("name@utoronto.ca").fill(attendeeEmail);
+  await organizerPage.getByRole("button", { name: "Add Attendee" }).click();
+  await expect(organizerPage.getByText("Attendee added as confirmed.")).toBeVisible();
+  await expect(organizerPage.getByText(attendeeEmail).first()).toBeVisible();
 
-  await page.goto("/panel/events");
-  await expect(page).toHaveURL(/\/panel\/events$/);
+  const attendeeContext = await browser.newContext({ baseURL: E2E_BASE_URL });
+  await attendeeContext.addInitScript((token) => {
+    window.localStorage.setItem("sessionToken", token);
+  }, attendee.token);
+  const attendeePage = await attendeeContext.newPage();
 
-  const eventCard = page.locator("article").filter({ hasText: eventTitle }).first();
+  await attendeePage.goto("/panel/events");
+  await expect(attendeePage).toHaveURL(/\/panel\/events$/);
+
+  const eventCard = attendeePage.locator("article").filter({ hasText: eventTitle }).first();
   await expect(eventCard).toBeVisible();
-
-  await eventCard.getByRole("button", { name: "Register" }).click();
-  await expect(page.getByText("Registered successfully. Your ticket is now available in My Tickets.")).toBeVisible();
+  await expect(eventCard.getByRole("button", { name: "Register" })).toHaveCount(0);
 
   await eventCard.getByRole("link", { name: "My Tickets" }).click();
 
-  await expect(page).toHaveURL(/\/panel\/tickets$/);
-  await expect(page.getByRole("heading", { name: "My Tickets & QR Codes" })).toBeVisible();
-  await expect(page.getByText(eventTitle).first()).toBeVisible();
-  await expect(page.getByText("Present this QR code at the entrance.")).toBeVisible();
+  await expect(attendeePage).toHaveURL(/\/panel\/tickets$/);
+  await expect(attendeePage.getByRole("heading", { name: "My Tickets" }).first()).toBeVisible();
+  await expect(attendeePage.getByText(eventTitle).first()).toBeVisible();
+  await expect(attendeePage.getByRole("button", { name: "Copy Ticket ID" })).toBeVisible();
+
+  await attendeeContext.close();
+  await organizerContext.close();
 });
 
 test("staff check-in updates organizer dashboard in real time", async ({ browser, request }) => {
@@ -256,24 +345,11 @@ test("staff check-in updates organizer dashboard in real time", async ({ browser
   const attendeeEmail = `e2e.realtime.${Date.now()}@utoronto.ca`;
   const attendeeName = "E2E Realtime Attendee";
 
-  const signUpResponse = await request.post(`${API_BASE_URL}/auth/sign-up`, {
-    data: {
-      email: attendeeEmail,
-      name: attendeeName,
-      password: PASSWORD,
-      role: "ATTENDEE",
-    },
+  await signUpAndSignIn(request, {
+    email: attendeeEmail,
+    name: attendeeName,
+    role: "ATTENDEE",
   });
-  expect(signUpResponse.ok()).toBeTruthy();
-
-  const attendeeSignInResponse = await request.post(`${API_BASE_URL}/auth/sign-in`, {
-    data: {
-      email: attendeeEmail,
-      password: PASSWORD,
-    },
-  });
-  expect(attendeeSignInResponse.ok()).toBeTruthy();
-  const attendeeSignInPayload = (await attendeeSignInResponse.json()) as { token: string };
 
   const assignStaffResponse = await request.post(`${API_BASE_URL}/api/events/${event.id}/staff`, {
     headers: {
@@ -286,38 +362,36 @@ test("staff check-in updates organizer dashboard in real time", async ({ browser
   });
   expect(assignStaffResponse.ok()).toBeTruthy();
 
-  const registerResponse = await request.post(`${API_BASE_URL}/api/events/${event.id}/register`, {
-    headers: {
-      Authorization: `Bearer ${attendeeSignInPayload.token}`,
-    },
+  const addAttendeePayload = await addAttendeeToEvent(request, {
+    organizerToken: organizer!.token,
+    eventId: event.id,
+    name: attendeeName,
+    email: attendeeEmail,
   });
-  expect(registerResponse.ok()).toBeTruthy();
-  const registerPayload = (await registerResponse.json()) as RegisterResponse;
-  expect(registerPayload.ticket).toBeTruthy();
+  expect(addAttendeePayload.ticket).toBeTruthy();
+  const ticketId = addAttendeePayload.ticket!.id;
 
-  const ticketId = registerPayload.ticket!.id;
-
-  const organizerContext = await browser.newContext({ baseURL: process.env.E2E_BASE_URL ?? "http://127.0.0.1:4173" });
+  const organizerContext = await browser.newContext({ baseURL: E2E_BASE_URL });
   await organizerContext.addInitScript((token) => {
     window.localStorage.setItem("sessionToken", token);
   }, organizer!.token);
 
   const organizerPage = await organizerContext.newPage();
   await organizerPage.goto(`/panel/events/${event.id}/dashboard`);
-  await expect(organizerPage.getByRole("heading", { name: "Attendance Dashboard" })).toBeVisible();
+  await expect(organizerPage.getByRole("heading", { name: "Event Dashboard" }).first()).toBeVisible();
 
-  const staffContext = await browser.newContext({ baseURL: process.env.E2E_BASE_URL ?? "http://127.0.0.1:4173" });
+  const staffContext = await browser.newContext({ baseURL: E2E_BASE_URL });
   await staffContext.addInitScript((token) => {
     window.localStorage.setItem("sessionToken", token);
   }, staff!.token);
 
   const staffPage = await staffContext.newPage();
   await staffPage.goto(`/panel/events/${event.id}/checkin`);
-  await expect(staffPage.getByRole("heading", { name: "Live Staff Check-in Console" })).toBeVisible();
+  await expect(staffPage.getByRole("heading", { name: "Check-in" }).first()).toBeVisible();
 
   await staffPage.getByPlaceholder("Paste or type the attendee ticket ID").fill(ticketId);
-  await staffPage.getByRole("button", { name: "Submit Manual Check-in" }).click();
-  await expect(staffPage.getByText("Manual check-in succeeded for ticket").first()).toBeVisible();
+  await staffPage.getByRole("button", { name: "Check In" }).click();
+  await expect(staffPage.getByText(`Check-in complete for ticket ${ticketId}.`).first()).toBeVisible();
 
   const refreshButton = organizerPage.getByRole("button", { name: /^Refresh/ });
 
