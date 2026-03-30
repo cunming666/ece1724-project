@@ -20,9 +20,9 @@ A full-stack event management system for publishing events, managing attendees, 
 
 | Name | Student Number | Preferred Email |
 | --- | --- | --- |
-| Shuanglong Zhu |  |  |
+| Shuanglong Zhu | 1012410302 | shuanglong.zhu@mail.utoronto.ca |
 | Nairui Tian | 1012435330 | n.tian@mail.utoronto.ca |
-| Cunming Liu |  |  |
+| Cunming Liu | 1012826248 | cunming.liu@mail.utoronto.ca |
 | Ruogu Xu | 1011038137 | ruogu.xu@mail.utoronto.ca |
 
 ## 2. Motivation
