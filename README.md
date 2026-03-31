@@ -8,11 +8,11 @@ A full-stack event management system for publishing events, managing attendees, 
 - [Done] Complete source code included in the repository
 - [Done] Development guide written for local setup and testing
 - [Done] Individual contributions drafted from commit history
-- [Todo] Fill student numbers and preferred email addresses in Section 1
+- [Done] Fill student numbers and preferred email addresses in Section 1
 - [Todo] Add screenshots in Section 6
 - [Todo] Add the video demo link in Section 9
-- [Todo] Complete Section 10: AI Assistance and Verification
-- [Todo] Add `ai-session.md`
+- [Done] Section 10: AI Assistance and Verification completed
+- [Done] Added `ai-session.md` with representative interaction records
 - [Todo] Let each team member review and revise their own contribution or reflection sections if needed
 - [Todo] Final proofreading and submission
 
@@ -35,7 +35,7 @@ The system was built to give event organizers, staff, and attendees one system f
 
 ## 3. Objectives
 
-The goal was to create a complete event ticketing and check-in system for small events. This isn’t just an event information page; it was designed to handle the complete life cycle, culminating in entry verification at the door.
+The goal was to create a complete event ticketing and check-in system for small events. This is not just an event information page; it was designed to handle the complete life cycle, culminating in entry verification at the door.
 
 We aimed to:
 
@@ -331,16 +331,29 @@ This project was tested locally and was not submitted with a public live deploym
 
 ### 10.1 Where AI Meaningfully Contributed
 
-- Summarize where AI was used in a technically meaningful way.
+AI was used for design and implementation support in areas that affected system correctness and maintainability, not just wording or formatting. The summary is based on selected milestones across the GitHub push timeline (early MVP, mid storage integration, and late hardening):
+
+- Backend consistency hardening: evaluating approaches for duplicate registration/check-in handling under concurrency, then implementing DB constraints + transactional fallback.
+- Frontend architecture cleanup: restructuring the control panel into smaller panels and unifying sidebar/quick-entry navigation from a shared config to prevent drift.
+- PostgreSQL verification workflow: shaping a safe verification path that proves PostgreSQL compatibility while keeping SQLite as the default local development mode.
+- Documentation alignment: refining setup/runbook notes so teammates can reproduce environment initialization, verification, and testing consistently.
 
 ### 10.2 One Representative Mistake or Limitation
 
-- Briefly describe one incorrect, incomplete, or suboptimal AI output.
-- Refer to `ai-session.md` for the concrete interaction record.
+A representative limitation was an early AI suggestion that relied too heavily on application-layer pre-check queries before insert for duplicate prevention. Under concurrent requests, this pattern is race-prone and can still produce duplicates.
+
+The team identified this risk during design review and replaced it with database-enforced uniqueness plus transaction-based fallback logic. See `ai-session.md` (Session 1) for the concrete interaction and correction.
 
 ### 10.3 How Correctness Was Verified
 
-- Summarize how your team verified AI-assisted work through testing, logs, manual flow checks, or code review.
+We verified AI-assisted changes through technical checks rather than accepting suggestions directly:
+
+- Integration tests (Vitest + Supertest), including RBAC matrix coverage and concurrent check-in consistency assertions.
+- End-to-end Playwright flows for auth entry, navigation consistency, Today/Week dashboard switching, attendee ticket flow, and staff check-in real-time update behavior.
+- Type and build validation (`npm run typecheck`, `npm run build`) to ensure no compile/regression issues.
+- Manual flow review and log inspection for duplicate-check-in behavior and request-level error observability (`requestId`, structured error responses).
+
+Additional prompt/response detail and per-session evidence are documented in `ai-session.md`.
 
 ## 11. Individual Contributions
 
@@ -397,7 +410,16 @@ The following summary is based on the current Git commit history.
 
 ### 12.2 Shuanglong Zhu
 
-- To be added by the team member.
+#### Lessons Learned
+
+- The most important lesson for me was how to turn an initially runnable MVP into a more reliable engineering system through iterative hardening. In practice, this meant improving environment setup, stabilizing startup behavior, and adding verification steps instead of only adding features.
+- I learned that full-stack quality depends on clear contracts between frontend, backend, and data layers. Work such as API error normalization, Prisma schema alignment, and consistent test coverage made integration issues easier to diagnose and reduced teammate setup friction.
+- I also gained practical experience balancing local developer productivity and deployment readiness, especially in maintaining SQLite as the default local flow while adding PostgreSQL verification for release confidence.
+
+#### Concluding Remarks
+
+- This project gave me end-to-end ownership experience across scaffolding, infrastructure, testing, and late-stage quality polishing. Compared with isolated assignments, the team workflow forced us to optimize for maintainability and reproducibility, not only correctness on one machine.
+- Overall, the project strengthened my confidence in building and stabilizing full-stack systems under deadline constraints, and it showed me how much disciplined testing and documentation contribute to real project delivery.
 
 ### 12.3 Nairui Tian
 
@@ -414,3 +436,7 @@ The following summary is based on the current Git commit history.
 ### 12.4 Ruogu Xu
 
 - To be added by the team member.
+
+
+
+
