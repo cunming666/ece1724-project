@@ -209,29 +209,29 @@ Thus, we wanted to build a clear, usable system that covers the basic event work
 
   <h4>Authentication and Event Entry</h4>
   <p align="center">
-    <img src="./docs/screenshots/authentication-page.png" alt="Authentication Page" width="48%">
-    <img src="./docs/screenshots/event-board.png" alt="Event Board" width="48%">
+    <img src="./docs/screenshots/Authentication page.png" alt="Authentication page" width="48%">
+    <img src="./docs/screenshots/Event Board.png" alt="Event Board" width="48%">
   </p>
 
   <h4>Organizer Views</h4>
   <p align="center">
-    <img src="./docs/screenshots/organizer-studio.png" alt="Organizer Studio" width="48%">
-    <img src="./docs/screenshots/roster-page.png" alt="Roster Page" width="48%">
+    <img src="./docs/screenshots/Organizer Studio.png" alt="Organizer Studio" width="48%">
+    <img src="./docs/screenshots/Roster page.png" alt="Roster page" width="48%">
   </p>
 
   <p align="center">
-    <img src="./docs/screenshots/roster-page2.png" alt="Roster Page 2" width="48%">
+    <img src="./docs/screenshots/Roster page2.png" alt="Roster page2" width="48%">
   </p>
 
   <h4>Staff Views</h4>
   <p align="center">
-    <img src="./docs/screenshots/staff-studio.png" alt="Staff Studio" width="48%">
-    <img src="./docs/screenshots/checkin-page.png" alt="Check-in Page" width="48%">
+    <img src="./docs/screenshots/Staff Studio.png" alt="Staff Studio" width="48%">
+    <img src="./docs/screenshots/Check-in page.png" alt="Check-in page" width="48%">
   </p>
 
   <h4>Attendee View</h4>
   <p align="center">
-    <img src="./docs/screenshots/my-tickets-page.png" alt="My Tickets Page" width="48%">
+    <img src="./docs/screenshots/My Tickets page.png" alt="My Tickets page" width="48%">
   </p>
 
 </details>
