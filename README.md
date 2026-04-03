@@ -2,19 +2,6 @@
 
 A full-stack event management system for publishing events, managing attendees, issuing tickets, and handling on-site check-in.
 
-## Submission Checklist
-
-- [Done] Final report structure prepared in `README.md`
-- [Done] Complete source code included in the repository
-- [Done] Development guide written for local setup and testing
-- [Done] Individual contributions drafted from commit history
-- [Done] Fill student numbers and preferred email addresses in Section 1
-- [Done] Add screenshots in Section 6
-- [Done] Add the video demo link in Section 9
-- [Done] Section 10: AI Assistance and Verification completed
-- [Done] Added `ai-session.md` with representative interaction records
-- [Done] Let each team member review and revise their own contribution or reflection sections if needed
-- [Done] Final proofreading and submission
 
 ## 1. Team Information
 
