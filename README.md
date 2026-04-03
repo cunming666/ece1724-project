@@ -388,7 +388,7 @@ The following summary is based on the current Git commit history.
 - Added Spaces-related backend configuration support where needed for the file workflow.
 - Integrated the weather API feature and later introduced Redux Toolkit for advanced shared client state management across the panel and ticket flows.
 
-### 11.4 Ruogu Xu (`29620`)
+### 11.4 Ruogu Xu (`29620`, `ggglg`)
 
 - Implemented the attendee ticket wallet and the main ticket viewing flow for attendee accounts.
 - Added organizer publish workflow support and related control panel integration.
@@ -435,8 +435,13 @@ The following summary is based on the current Git commit history.
 
 ### 12.4 Ruogu Xu
 
-- To be added by the team member.
+#### Lessons Learned
 
+- For me, the most important thing I learned was getting an initial understanding of web development through a complete team project.
+- Since I had never really worked on software development before, this project helped me see more clearly how the frontend, backend, database, and real-time features work together.
 
+#### Concluding Remarks
 
+- This project gave me my first practical experience with full-stack web development in a team setting.
+- Overall, it helped me build a basic foundation and made me more familiar with how real software projects are developed.
 
