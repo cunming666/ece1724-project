@@ -9,12 +9,12 @@ A full-stack event management system for publishing events, managing attendees, 
 - [Done] Development guide written for local setup and testing
 - [Done] Individual contributions drafted from commit history
 - [Done] Fill student numbers and preferred email addresses in Section 1
-- [Todo] Add screenshots in Section 6
-- [Todo] Add the video demo link in Section 9
+- [Done] Add screenshots in Section 6
+- [Done] Add the video demo link in Section 9
 - [Done] Section 10: AI Assistance and Verification completed
 - [Done] Added `ai-session.md` with representative interaction records
-- [Todo] Let each team member review and revise their own contribution or reflection sections if needed
-- [Todo] Final proofreading and submission
+- [Done] Let each team member review and revise their own contribution or reflection sections if needed
+- [Done] Final proofreading and submission
 
 ## 1. Team Information
 
@@ -356,8 +356,11 @@ This project was tested locally and was not submitted with a public live deploym
 
 ## 9. Video Demo
 
-- Add the video link here.
-- Briefly note what the video demonstrates.
+The video demo is included in this repository: 
+
+- [Video Demo](./ECE1724_Demo_Video.mp4)
+
+This demo shows the complete end-to-end workflow of the system, including organizer event creation and publishing, attendee registration and ticket viewing, staff check-in, and organizer-side attendance tracking with real-time dashboard updates.
 
 ## 10. AI Assistance and Verification
 
